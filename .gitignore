@@ -1,0 +1,40 @@
+#General
+*.pyc
+*.pyo
+*.pyd
+pycache
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+#Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+#IDEs and Editors
+.vscode/
+.idea/
+*.code-workspace
+.idea/
+
+#Data and Log Files
+data/
+log/
+*.log
+output/
+
+#Compiled files
+*.exe
+*.dll
+*.class
+
+#Miscellaneous
+*.swp
+thumbs.db
+.DS_Store
+.secret

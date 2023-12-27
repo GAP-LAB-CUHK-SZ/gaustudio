@@ -3,6 +3,15 @@ name: vanilla
 tag: ""
 seed: 42
 
+dataset:
+  name: colmap
+  source_path: ???
+  model_path: ???
+  images: "images"
+  resolution: -1
+  data_device: "cuda"
+  eval: False
+
 model:
   name: vanilla_sg
   pointcloud:

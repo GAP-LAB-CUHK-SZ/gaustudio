@@ -6,8 +6,8 @@ import torch
 
 class BasePointCloud:
     def setup(self):
-        for elem in self.config:
-            dummy_data = torch.tensor
+        for elem in self.config["attributes"]:
+            dummy_data = torch.empty(0)
             setattr(self, '_'+elem, dummy_data)
             
     def load(self, ply_path: str):
@@ -34,4 +34,3 @@ class BasePointCloud:
                 setattr(self, '_'+elem, data)
 
         print(f"Loaded {self.num_points} points from {ply_path}")
-        

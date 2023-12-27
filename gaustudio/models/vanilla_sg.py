@@ -1,32 +1,73 @@
 from gaustudio.models.base import BasePointCloud
+# from gaustudio.utils import build_scaling_rotation, strip_symmetric, build_covariance_from_scaling_rotation, build_covariance_from_scaling_rotation_and_rotation_matrix, build_covariance_from_scaling_rotation_and_rotation_
+from gaustudio.models.utils import get_activation, build_covariance_from_scaling_rotation
 from gaustudio import models
+
+import torch
 
 @models.register('vanilla_pcd')
 class VanillaPointCloud(BasePointCloud):
     default_conf = {
         'sh_degree': 3,
-        'attributes':  
-            {
+        'attributes':  {
             "xyz": 3, 
             'opacity': 1,
             "f_dc": 3,
             "f_rest": 45,
             "scale": 3,
             "rot": 4
-            }
+        },
+        'activations':{
+            "scale": "exp",
+            "opacity": "sigmoid",
+            "rot": "normalize"
+        }
     }
     
     def __init__(self, config) -> None:
         super().__init__()
         self.config = {**self.default_conf, **config}
         self.setup()
+        self.setup_functions()
 
+        self.active_sh_degree = 0
+        self.max_sh_degree = self.config["sh_degree"]
+        self.max_radii2D = torch.empty(0)
+        self.xyz_gradient_accum = torch.empty(0)
+        self.denom = torch.empty(0)
+        
         # TODO: Move resume to datasets
         resume_path = self.config.get('resume_path', None)
         if resume_path is not None:
             print(f"Resuming pointcloud")
             self.load(resume_path)
 
+    def setup_functions(self):        
+        self.covariance_activation = build_covariance_from_scaling_rotation
+        self.scaling_inverse_activation = torch.log
+        self.inverse_opacity_activation = lambda x: torch.log(x/(1-x))
+
+    def get_attribute(self, attribute):
+        if attribute in self.config["activations"]:
+            activation_function = get_activation(self.config["activations"][attribute])
+            print(activation_function)
+            return activation_function(getattr(self, '_'+attribute))
+        else:
+            return getattr(self, '_'+attribute)
+
+    def oneupSHdegree(self):
+        if self.active_sh_degree < self.max_sh_degree:
+            self.active_sh_degree += 1
+
+    def get_covariance(self, scaling_modifier = 1):
+        return self.covariance_activation(self.get_attribute["scale"], scaling_modifier, self._rot)
+
+    @property
+    def get_features(self):
+        features_dc = self._features_dc
+        features_rest = self._features_rest
+        return torch.cat((features_dc, features_rest), dim=1)
+    
     def export(self, path):
         xyz = self._xyz
         normals = np.zeros_like(xyz)

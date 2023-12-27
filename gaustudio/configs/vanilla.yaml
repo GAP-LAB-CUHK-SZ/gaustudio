@@ -1,0 +1,11 @@
+# name: vanilla-${basename:${dataset.root_dir}}
+name: vanilla
+tag: ""
+seed: 42
+
+model:
+  name: vanilla_sg
+  pointcloud:
+    name: vanilla_pcd
+    sh_degree: 3
+    resume_path: Null

@@ -114,6 +114,7 @@ class ColmapDataset:
         self.train_cameras = train_cam_infos
         self.test_cameras = test_cam_infos
         self.nerf_normalization = nerf_normalization
+        self.cameras_extent = nerf_normalization["radius"]
         self.ply_path = ply_path
         
     def export(self, save_path):

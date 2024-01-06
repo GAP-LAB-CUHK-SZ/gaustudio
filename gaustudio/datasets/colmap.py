@@ -2,6 +2,7 @@ from gaustudio.datasets.utils import read_extrinsics_text, read_intrinsics_text,
                                      read_extrinsics_binary, read_intrinsics_binary, read_points3D_binary, read_points3D_text, \
                                      focal2fov, getNerfppNorm, camera_to_JSON, storePly
 from gaustudio import datasets
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 
 import os
 import cv2
@@ -10,10 +11,11 @@ import json
 
 import numpy as np
 from PIL import Image
-
+from typing import List, Dict 
+from pathlib import Path
 
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, depths_folder=None):
-    cam_infos = []
+    cameras = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
         # the exact output you're looking for:
@@ -31,47 +33,39 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, depths_fold
 
         if intr.model=="SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
-            FovY = focal2fov(focal_length_x, height)
-            FovX = focal2fov(focal_length_x, width)
+            FoVy = focal2fov(focal_length_x, height)
+            FoVx = focal2fov(focal_length_x, width)
         elif intr.model=="PINHOLE":
             focal_length_x = intr.params[0]
             focal_length_y = intr.params[1]
-            FovY = focal2fov(focal_length_y, height)
-            FovX = focal2fov(focal_length_x, width)
+            FoVy = focal2fov(focal_length_y, height)
+            FoVx = focal2fov(focal_length_x, width)
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
-        image_name = os.path.basename(image_path).split(".")[0]
-        image = Image.open(image_path)
-        
-        if depths_folder is not None and os.path.exists(depths_folder):
-            depth_path = os.path.join(depths_folder, os.path.basename(extr.name).split('.')[0]+'.png')
-            
-            depth = cv2.imread(depth_path, -1) / 1000.
-            depth = cv2.resize(depth, (width, height))
-            cam_info = datasets.CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                                image_path=image_path, image_name=image_name, width=width, height=height,
-                                depth=depth)
-        else:
-            cam_info = datasets.CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                                image_path=image_path, image_name=image_name, width=width, height=height)
-        cam_infos.append(cam_info)
+        _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, image_width=width, image_height=height)
+        cameras.append(_camera)
     sys.stdout.write('\n')
-    return cam_infos
+    return cameras
 
-@datasets.register('colmap')
-class ColmapDataset:
-    def __init__(self, config):
-        self.config = config        
-        self.path = config.get('source_path', None)
-        assert self.path is not None, "Please provide a source path"
-        self.images = config.get('images', "images")
+class ColmapDatasetBase:
+    # the data only has to be processed once
+    def __init__(self, config: Dict):
+        self._validate_config(config)
+        self.path = Path(config['source_path'])
+        self.images_dir = config['images']
         self.eval = config.get('eval', False)
-        self.llffhold = config.get('llffhold', 8)
-        self.setup()
-        
-    def setup(self):
+
+        self._initialize()
+    
+    def _validate_config(self, config: Dict):
+        required_keys = ['source_path', 'images']
+        for k in required_keys:
+            if k not in config:
+                raise ValueError(f"Config must contain '{k}' key")
+
+    def _initialize(self):
         try:
             cameras_extrinsic_file = os.path.join(self.path, "sparse/0", "images.bin")
             cameras_intrinsic_file = os.path.join(self.path, "sparse/0", "cameras.bin")
@@ -83,23 +77,14 @@ class ColmapDataset:
             cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
-        reading_dir = self.images
+        reading_dir = self.images_dir
         depth_dir = "depths"
-        cam_infos_unsorted = readColmapCameras(cam_extrinsics, cam_intrinsics,  
-                                               os.path.join(self.path, reading_dir), 
-                                               os.path.join(self.path, depth_dir))
-                                               
-        cam_infos = sorted(cam_infos_unsorted, key=lambda x: x.image_name) 
-        
-        if self.eval:
-            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % self.llffhold != 0]
-            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % self.llffhold == 0]
-        else:
-            train_cam_infos = cam_infos
-            test_cam_infos = []
-            
-        nerf_normalization = getNerfppNorm(train_cam_infos)
-        
+        all_cameras_unsorted = readColmapCameras(cam_extrinsics, cam_intrinsics,  
+                                            os.path.join(self.path, reading_dir), 
+                                            os.path.join(self.path, depth_dir))
+                                            
+        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
+
         ply_path = os.path.join(self.path, "sparse/0/points3D.ply")
         bin_path = os.path.join(self.path, "sparse/0/points3D.bin")
         txt_path = os.path.join(self.path, "sparse/0/points3D.txt")
@@ -110,13 +95,32 @@ class ColmapDataset:
             except:
                 xyz, rgb, _ = read_points3D_text(txt_path)
             storePly(ply_path, xyz, rgb)
-
+        
+        self.ply_path = ply_path
+        self.nerf_normalization = getNerfppNorm(self.all_cameras)
+        self.cameras_extent = self.nerf_normalization["radius"]
+        
+class ColmapDataset(Dataset, ColmapDatasetBase):
+    def __init__(self, config, resolution_scale):
+        super().__init__(config)
+        self.resolution_scale = resolution_scale
+        if self.eval:
+            train_cam_infos = [c.downsample(resolution_scale) for idx, c in enumerate(self.all_cameras) if idx % self.llffhold != 0]
+            test_cam_infos = [c.downsample(resolution_scale) for idx, c in enumerate(self.all_cameras) if idx % self.llffhold == 0]
+        else:
+            train_cam_infos = self.all_cameras
+            test_cam_infos = []
         self.train_cameras = train_cam_infos
         self.test_cameras = test_cam_infos
-        self.nerf_normalization = nerf_normalization
-        self.cameras_extent = nerf_normalization["radius"]
-        self.ply_path = ply_path
         
+    def __len__(self):
+        return len(self.all_images)
+    
+    def __getitem__(self, index):
+        return {
+            'index': index
+        }
+    
     def export(self, save_path):
         json_cams = []
         camlist = []
@@ -126,3 +130,26 @@ class ColmapDataset:
             json_cams.append(camera_to_JSON(id, cam))
         with open(save_path, 'w') as file:
             json.dump(json_cams, file)
+
+@datasets.register('colmap')
+class ColmapDataloader:
+    def __init__(self, 
+                 config: Dict,
+                 shuffle: bool = True,
+                 resolution_scales: List[float] = [1.0]):
+        
+        self.datasets = {}
+        for scale in resolution_scales:
+            self.datasets[scale] = ColmapDataset(config, scale)
+            
+    def get_dataloader(self, dataset):
+        return DataLoader(dataset, 
+                          num_workers=os.cpu_count(), 
+                          batch_size=1,
+                          pin_memory=True)
+
+    def get_train_dataloader(self, scale=1.0):
+        return self.get_dataloader(self.datasets[scale].train_cameras)
+
+    def get_test_dataloader(self, scale=1.0):
+        return self.get_dataloader(self.datasets[scale].test_cameras)

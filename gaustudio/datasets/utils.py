@@ -23,7 +23,7 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def camera_to_JSON(id, camera : datasets.CameraInfo):
+def camera_to_JSON(id, camera : datasets.Camera):
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = camera.R.transpose()
     Rt[:3, 3] = camera.T

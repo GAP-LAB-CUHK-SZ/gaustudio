@@ -27,4 +27,7 @@ def main():
     config.dataset.source_path = args.s
     
     pcd = models.make(config.model.pointcloud.name, config.model.pointcloud)
-    
+    dataset = datasets.make(config.dataset.name, config.dataset)
+
+if __name__ == '__main__':
+    main()

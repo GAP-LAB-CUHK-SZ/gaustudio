@@ -1,21 +1,55 @@
 datasets = {}
 import numpy as np
-import cv2
+from PIL import Image
+import dataclasses
+import math
+import os
+import torch
 
-class CameraInfo(NamedTuple):
-    uid: int
-    R: np.array
-    T: np.array
-    FovY: np.array
-    FovX: np.array
-    image: np.array
-    image_path: str
-    image_name: str
-    width: int
-    height: int
-    
+def getWorld2View(R, t):
+    Rt = np.zeros((4, 4))
+    Rt[:3, :3] = R.transpose()
+    Rt[:3, 3] = t
+    Rt[3, 3] = 1.0
+    return np.float32(Rt)
+
+def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
+    Rt = np.zeros((4, 4))
+    Rt[:3, :3] = R.transpose()
+    Rt[:3, 3] = t
+    Rt[3, 3] = 1.0
+
+    C2W = np.linalg.inv(Rt)
+    cam_center = C2W[:3, 3]
+    cam_center = (cam_center + translate) * scale
+    C2W[:3, 3] = cam_center
+    Rt = np.linalg.inv(C2W)
+    return np.float32(Rt)
+
+def getProjectionMatrix(znear, zfar, fovX, fovY):
+    tanHalfFovY = math.tan((fovY / 2))
+    tanHalfFovX = math.tan((fovX / 2))
+
+    top = tanHalfFovY * znear
+    bottom = -top
+    right = tanHalfFovX * znear
+    left = -right
+
+    P = torch.zeros(4, 4)
+
+    z_sign = 1.0
+
+    P[0, 0] = 2.0 * znear / (right - left)
+    P[1, 1] = 2.0 * znear / (top - bottom)
+    P[0, 2] = (right + left) / (right - left)
+    P[1, 2] = (top + bottom) / (top - bottom)
+    P[3, 2] = z_sign
+    P[2, 2] = z_sign * zfar / (zfar - znear)
+    P[2, 3] = -(zfar * znear) / (zfar - znear)
+    return P
+
 @dataclasses.dataclass
-class Camera(nn.Module):
+class Camera:
 
     R: np.ndarray
     T: np.ndarray 
@@ -31,10 +65,11 @@ class Camera(nn.Module):
     trans: np.array = np.array([0.0, 0.0, 0.0])
     scale: float = 1.0
 
-    world_view_transform: torch.Tensor = None 
-    full_proj_transform: torch.Tensor = None
+    world_view_transform: np.array = None 
+    full_proj_transform: np.array = None
 
     image_path: str = None
+    image_name: str = None
     image: np.array = None
 
     def __post_init__(self):
@@ -44,12 +79,13 @@ class Camera(nn.Module):
         if self.world_view_transform is None:
             self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
         if self.full_proj_transform is None:
-            projection_matrix = getProjectionMatrix(znear=znear, zfar=zfar, fovX=FoVx, fovY=FoVy).transpose(0,1)
-            self.full_proj_transform = (world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
+            projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1)
+            self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
         
         if self.image_path is not None:
-            self.image = Image.open(image_path)
-            self.image_height, self.image_width, _ = image.shape
+            self.image = torch.from_numpy(np.array(Image.open(self.image_path))) / 255.0
+            self.image_name = os.path.basename(self.image_path).split(".")[0]
+            self.image_height, self.image_width, _ = self.image.shape
             
         # Compute camera center from inverse view matrix
         view_inv = torch.inverse(self.world_view_transform)
@@ -78,15 +114,16 @@ class Camera(nn.Module):
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, self.trans, self.scale)).transpose(0, 1).to(self.data_device)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
-    
-    @staticmethod
-    def from_colmap(cam_info):
-        return Camera(
-            R=cam_info.R,
-            T=cam_info.T,
-            FoVx=cam_info.FovX, 
-            FoVy=cam_info.FovY
-        )
+
+    def downsample(self, resolution):
+        if self.image is not None:
+            resized_image_rgb = PILtoTorch(self.image, resolution)
+            
+            gt_image = resized_image_rgb[:3, ...]
+            self.image = gt_image.clamp(0.0, 1.0)
+            self.image_height, self.image_width = gt_image.shape[1:3]
+        else:
+            self.image_height, self.image_width = resolution
 
 def register(name):
     def decorator(cls):

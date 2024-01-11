@@ -39,7 +39,7 @@ def main():
     n_gpus = len(args.gpu.split(','))
     
     from gaustudio.utils.misc import load_config
-    from gaustudio import models, datasets
+    from gaustudio import models, datasets, renderers
     # parse YAML config to OmegaConf
     config = load_config(args.config, cli_args=extras)
     config.cmd_args = vars(args)  

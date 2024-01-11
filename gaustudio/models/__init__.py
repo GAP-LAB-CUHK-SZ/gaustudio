@@ -12,4 +12,4 @@ def make(name, config):
     model = models[name](config)
     return model
 
-from . import vanilla_sg
+from . import vanilla_sg, mip_sg, scaffold_sg

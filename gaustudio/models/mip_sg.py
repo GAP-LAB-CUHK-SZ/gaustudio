@@ -5,8 +5,8 @@ from gaustudio import models
 
 import torch
 
-@models.register('vanilla_pcd')
-class VanillaPointCloud(BasePointCloud):
+@models.register('mip_pcd')
+class MipPointCloud(BasePointCloud):
     default_conf = {
         'sh_degree': 3,
         'attributes':  {
@@ -68,6 +68,79 @@ class VanillaPointCloud(BasePointCloud):
         features_rest = self._features_rest
         return torch.cat((features_dc, features_rest), dim=1)
     
+    @property
+    def get_scaling_with_3D_filter(self):
+        scales = self.get_attribute["scale"]
+        
+        scales = torch.square(scales) + torch.square(self.filter_3D)
+        scales = torch.sqrt(scales)
+        return scales
+    
+    @property
+    def get_opacity_with_3D_filter(self):
+        opacity = get_activation(self.config["activations"]["opacity"])(self._opacity)
+        # apply 3D filter
+        scales = self.get_attribute["scale"]
+        
+        scales_square = torch.square(scales)
+        det1 = scales_square[:,0] * scales_square[:,1] * scales_square[:,2] # det1 = scales_square.prod(dim=1)
+        
+        scales_after_square = scales_square + torch.square(self.filter_3D) 
+        det2 = scales_after_square[:,0] * scales_after_square[:,1] * scales_after_square[:,2] # det2 = scales_after_square.prod(dim=1) 
+        coef = torch.sqrt(det1 / det2)
+        return opacity * coef[..., None]
+
+    @torch.no_grad()
+    def compute_3D_filter(self, cameras):
+        print("Computing 3D filter")
+        #TODO consider focal length and image width
+        xyz = self.get_xyz
+        distance = torch.ones((xyz.shape[0]), device=xyz.device) * 100000.0
+        valid_points = torch.zeros((xyz.shape[0]), device=xyz.device, dtype=torch.bool)
+        
+        # we should use the focal length of the highest resolution camera
+        focal_length = 0.
+        for camera in cameras:
+
+            # transform points to camera space
+            R = torch.tensor(camera.R, device=xyz.device, dtype=torch.float32)
+            T = torch.tensor(camera.T, device=xyz.device, dtype=torch.float32)
+             # R is stored transposed due to 'glm' in CUDA code so we don't neet transopse here
+            xyz_cam = xyz @ R + T[None, :]
+            
+            xyz_to_cam = torch.norm(xyz_cam, dim=1)
+            
+            # project to screen space
+            valid_depth = xyz_cam[:, 2] > 0.2 #0.2? hyper param?
+            
+            
+            x, y, z = xyz_cam[:, 0], xyz_cam[:, 1], xyz_cam[:, 2]
+            z = torch.clamp(z, min=0.001)
+            
+            x = x / z * camera.focal_x + camera.image_width / 2.0
+            y = y / z * camera.focal_y + camera.image_height / 2.0
+            
+            # in_screen = torch.logical_and(torch.logical_and(x >= 0, x < camera.image_width), torch.logical_and(y >= 0, y < camera.image_height))
+            
+            # use similar tangent space filtering as in the paper
+            in_screen = torch.logical_and(torch.logical_and(x >= -0.15 * camera.image_width, x <= camera.image_width * 1.15), torch.logical_and(y >= -0.15 * camera.image_height, y <= 1.15 * camera.image_height))
+            
+        
+            valid = torch.logical_and(valid_depth, in_screen)
+            
+            # distance[valid] = torch.min(distance[valid], xyz_to_cam[valid])
+            distance[valid] = torch.min(distance[valid], z[valid])
+            valid_points = torch.logical_or(valid_points, valid)
+            if focal_length < camera.focal_x:
+                focal_length = camera.focal_x
+        
+        distance[~valid_points] = distance[valid_points].max()
+        
+        #TODO remove hard coded value
+        #TODO box to gaussian transform
+        filter_3D = distance / focal_length * (0.2 ** 0.5)
+        self.filter_3D = filter_3D[..., None] #compute s/v_k of the 3D filter in the paper
+
     def export(self, path):
         xyz = self._xyz
         normals = np.zeros_like(xyz)

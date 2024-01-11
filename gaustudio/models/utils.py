@@ -30,7 +30,16 @@ def get_activation(name):
         return lambda x: torch.tanh(x)
     else:
         return getattr(F, name)
-    
+
+# def get_mlps(hidden_layer_channels, hidden_layer_names):
+#     layers = []
+#     for i, layer_name in enumerate(hidden_layer_names):
+#         if layer_name == 'mlp':
+#             layers.append(nn.Linear(hidden_layer_channels[i], hidden_layer_channels[i+1]))
+#         else:
+#             layers.append(get_activation(layer_name))
+#     return nn.Sequential(*layers)
+        
 
 def build_rotation(r):
     norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])

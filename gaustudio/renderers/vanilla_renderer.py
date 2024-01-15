@@ -1,10 +1,10 @@
-from gaustudio.models.base import BaseRenderer
-from gaustudio import models
+from gaustudio.renderers.base import BaseRenderer
+from gaustudio import renderers
 import torch
 import math
 from gaustudio.utils.sh_utils import eval_sh
 
-@models.register('vanilla_renderer')
+@renderers.register('vanilla_renderer')
 class VanillaRenderer(BaseRenderer):
     default_conf = {
         'kernel_size': 0.,

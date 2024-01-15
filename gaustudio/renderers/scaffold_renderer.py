@@ -1,5 +1,5 @@
-from gaustudio.models.base import BaseRenderer
-from gaustudio import models
+from gaustudio.renderers.base import BaseRenderer
+from gaustudio import renderers
 import torch
 import math
 from gaustudio.utils.sh_utils import eval_sh
@@ -7,7 +7,7 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from einops import repeat
 from gaustudio.models.utils import get_activation
 
-@models.register('scaffold_renderer')
+@renderers.register('scaffold_renderer')
 class ScaffoldRenderer(BaseRenderer):
     default_conf = {
         'kernel_size': 0.,
@@ -157,3 +157,54 @@ class ScaffoldRenderer(BaseRenderer):
         shs = None
         cov3D_precomp = None
         return xyz, shs, color, opacity, scales, rotations, cov3D_precomp
+    
+    def render(self, viewpoint_camera, gaussian_model, subpixel_offset=None):
+        xyz, shs, colors_precomp, opacity, scales, rotations, cov3D_precomp = self.get_gaussians_properties(viewpoint_camera, gaussian_model)
+        # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
+        screenspace_points = torch.zeros_like(xyz, dtype=xyz.dtype, requires_grad=True, device="cuda") + 0
+        try:
+            screenspace_points.retain_grad()
+        except:
+            pass
+
+        # Set up rasterization configuration
+        tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+        tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+
+        if subpixel_offset is None:
+            subpixel_offset = torch.zeros((int(viewpoint_camera.image_height), int(viewpoint_camera.image_width), 2), dtype=torch.float32, device="cuda")
+
+        raster_settings = GaussianRasterizationSettings(
+            image_height=int(viewpoint_camera.image_height),
+            image_width=int(viewpoint_camera.image_width),
+            tanfovx=tanfovx,
+            tanfovy=tanfovy,
+            kernel_size=self.kernel_size, #***new***
+            subpixel_offset=subpixel_offset, #***new***
+            bg=self.bg_color,
+            scale_modifier=self.scaling_modifier,
+            viewmatrix=viewpoint_camera.world_view_transform,
+            projmatrix=viewpoint_camera.full_proj_transform,
+            sh_degree=gaussian_model.active_sh_degree if shs != None else 1,
+            campos=viewpoint_camera.camera_center,
+            prefiltered=False,
+            debug=self.debug
+        )
+
+        rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+        
+        # Rasterize visible Gaussians to image, obtain their radii (on screen). 
+        rendered_image, radii = rasterizer(
+            means3D = xyz,
+            means2D = screenspace_points,
+            shs = shs,
+            colors_precomp = colors_precomp,
+            opacities = opacity,
+            scales = scales,
+            rotations = rotations,
+            cov3D_precomp = cov3D_precomp)
+        
+        return {"render": rendered_image,
+                "viewspace_points": screenspace_points,
+                "visibility_filter" : radii > 0,
+                "radii": radii}

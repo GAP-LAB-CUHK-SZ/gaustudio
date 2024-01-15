@@ -28,13 +28,11 @@ class BaseRenderer:
             image_width=int(viewpoint_camera.image_width),
             tanfovx=tanfovx,
             tanfovy=tanfovy,
-            kernel_size=self.kernel_size, #***new***
-            subpixel_offset=subpixel_offset, #***new***
             bg=self.bg_color,
             scale_modifier=self.scaling_modifier,
             viewmatrix=viewpoint_camera.world_view_transform,
             projmatrix=viewpoint_camera.full_proj_transform,
-            sh_degree=self.active_sh_degree if shs != None else 1,
+            sh_degree=gaussian_model.active_sh_degree if shs != None else 1,
             campos=viewpoint_camera.camera_center,
             prefiltered=False,
             debug=self.debug
@@ -43,7 +41,7 @@ class BaseRenderer:
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
         
         # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-        rendered_image, radii = rasterizer(
+        rendered_image, radii, rendered_depth, rendered_median_depth, rendered_final_opacity = rasterizer(
             means3D = xyz,
             means2D = screenspace_points,
             shs = shs,

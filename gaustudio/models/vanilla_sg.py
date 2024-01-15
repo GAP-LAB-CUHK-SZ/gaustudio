@@ -64,8 +64,8 @@ class VanillaPointCloud(BasePointCloud):
 
     @property
     def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
+        features_dc = self._f_dc.reshape(len(self._f_dc), -1, 3)
+        features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
         return torch.cat((features_dc, features_rest), dim=1)
     
     def export(self, path):

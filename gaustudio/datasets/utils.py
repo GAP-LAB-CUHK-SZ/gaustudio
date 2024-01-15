@@ -45,6 +45,39 @@ def camera_to_JSON(id, camera : datasets.Camera):
     }
     return camera_entry
 
+def fx2fov(fx, width):
+    fov_x = 2 * np.arctan(width / (2 * fx))
+    return np.degrees(fov_x)
+
+def fy2fov(fy, height):
+    fov_y = 2 * np.arctan(height / (2 * fy))
+    return np.degrees(fov_y)
+
+def JSON_to_camera(camera_json):
+    id = camera_json['id']
+    image_name = camera_json['img_name']
+    width = camera_json['width']
+    height = camera_json['height']
+    position = np.array(camera_json['position'])
+    rotation = np.array(camera_json['rotation'])
+    fy = camera_json['fy']
+    fx = camera_json['fx']
+    
+    R = rotation.transpose()
+    T = position
+    
+    camera = datasets.Camera(
+        image_name=image_name,
+        image_width=width,
+        image_height=height,
+        R=R,
+        T=T,
+        FoVx=fx2fov(fx, width),
+        FoVy=fy2fov(fy, height)
+    )
+    
+    return camera
+
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):

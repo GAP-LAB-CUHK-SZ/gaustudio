@@ -7,6 +7,8 @@ from datetime import datetime
 import torch
 import json
 from pathlib import Path
+import cv2
+import torchvision
 from gaustudio.datasets.utils import JSON_to_camera
 def searchForMaxIteration(folder):
     saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
@@ -65,7 +67,9 @@ def main():
     os.makedirs(gt_depths_path, exist_ok=True)
     
     for camera in cameras:
-        renderer.render(camera, pcd)
-    
+        render_pkg = renderer.render(camera, pcd)
+        rendering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        torchvision.utils.save_image(rendering, os.path.join(render_path, f"{camera.image_name}.png"))
+
 if __name__ == '__main__':
     main()

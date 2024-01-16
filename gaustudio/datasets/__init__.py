@@ -65,16 +65,19 @@ class Camera:
     trans: np.array = np.array([0.0, 0.0, 0.0])
     scale: float = 1.0
 
-    world_view_transform: np.array = None 
-    full_proj_transform: np.array = None
+    world_view_transform: torch.tensor = None 
+    full_proj_transform: torch.tensor = None
 
     image_path: str = None
     image_name: str = None
     image: np.array = None
 
+    data_device: torch.device = None
     def __post_init__(self):
         self._setup()
-    
+        if self.data_device is not None:
+            self.to_device(self.data_device)
+
     def _setup(self):
         if self.world_view_transform is None:
             self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
@@ -91,11 +94,17 @@ class Camera:
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]
     
+    def to_device(self, device):
+        self.world_view_transform = self.world_view_transform.to(device)
+        self.full_proj_transform = self.full_proj_transform.to(device)
+        self.camera_center = self.camera_center.to(device)
+        self.data_device = device
+        
     @property
     def extrinsics(self):
         extrinsic = np.hstack((self.R, self.T.reshape(-1, 1)))
         extrinsic = np.vstack((extrinsic,[0,0,0,1]))
-        return torch.from_numpy(extrinsic).float().to(self.data_device)
+        return torch.from_numpy(extrinsic).float()
         
     @extrinsics.setter
     def extrinsics(self, value):

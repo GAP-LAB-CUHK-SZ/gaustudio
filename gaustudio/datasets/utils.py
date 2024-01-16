@@ -48,7 +48,7 @@ def camera_to_JSON(id, camera : datasets.Camera):
 def focal2fov(focal, pixels):
     return 2*math.atan(pixels/(2*focal))
 
-def JSON_to_camera(camera_json):
+def JSON_to_camera(camera_json, data_device=None):
     id = camera_json['id']
     image_name = camera_json['img_name']
     width = camera_json['width']
@@ -77,7 +77,8 @@ def JSON_to_camera(camera_json):
         R=R,
         T=T,
         FoVx=focal2fov(fx, width),
-        FoVy=focal2fov(fy, height)
+        FoVy=focal2fov(fy, height),
+        data_device=data_device
     )
     
     return camera

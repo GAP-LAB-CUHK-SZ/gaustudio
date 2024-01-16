@@ -48,7 +48,7 @@ def main():
         camera_data = json.load(f)
     cameras = []
     for camera_json in camera_data:
-        camera = JSON_to_camera(camera_json)
+        camera = JSON_to_camera(camera_json, "cuda")
         cameras.append(camera)
 
     pcd.load(os.path.join(args.m,"point_cloud", "iteration_" + str(loaded_iter), "point_cloud.ply"))

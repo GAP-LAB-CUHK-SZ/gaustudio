@@ -21,9 +21,8 @@ model:
 
 renderer:
   name: vanilla_renderer
-  kernel_size: 0.
   scaling_modifier: 1.
   white_background: False
-  convert_SHs_python: True
-  compute_cov3D_python: True
+  convert_SHs_python: False
+  compute_cov3D_python: False
   debug: False

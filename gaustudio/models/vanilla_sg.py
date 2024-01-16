@@ -24,10 +24,13 @@ class VanillaPointCloud(BasePointCloud):
         }
     }
     
-    def __init__(self, config) -> None:
+    def __init__(self, config, device=None) -> None:
         super().__init__()
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         self.config = {**self.default_conf, **config}
-        self.setup()
+        self.setup(device)
         self.setup_functions()
 
         self.active_sh_degree = 0
@@ -36,6 +39,7 @@ class VanillaPointCloud(BasePointCloud):
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         
+
         # TODO: Move resume to datasets
         resume_path = self.config.get('resume_path', None)
         if resume_path is not None:

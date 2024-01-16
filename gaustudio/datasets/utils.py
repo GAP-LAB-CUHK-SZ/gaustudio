@@ -45,13 +45,8 @@ def camera_to_JSON(id, camera : datasets.Camera):
     }
     return camera_entry
 
-def fx2fov(fx, width):
-    fov_x = 2 * np.arctan(width / (2 * fx))
-    return np.degrees(fov_x)
-
-def fy2fov(fy, height):
-    fov_y = 2 * np.arctan(height / (2 * fy))
-    return np.degrees(fov_y)
+def focal2fov(focal, pixels):
+    return 2*math.atan(pixels/(2*focal))
 
 def JSON_to_camera(camera_json):
     id = camera_json['id']
@@ -60,6 +55,15 @@ def JSON_to_camera(camera_json):
     height = camera_json['height']
     position = np.array(camera_json['position'])
     rotation = np.array(camera_json['rotation'])
+    
+    W2C = np.eye(4)
+    W2C[:3, :3] = rotation
+    W2C[:3, 3] = position
+    Rt = np.linalg.inv(W2C)
+    
+    rotation = Rt[:3, :3]
+    position = Rt[:3, 3]
+    
     fy = camera_json['fy']
     fx = camera_json['fx']
     
@@ -72,8 +76,8 @@ def JSON_to_camera(camera_json):
         image_height=height,
         R=R,
         T=T,
-        FoVx=fx2fov(fx, width),
-        FoVy=fy2fov(fy, height)
+        FoVx=focal2fov(fx, width),
+        FoVy=focal2fov(fy, height)
     )
     
     return camera

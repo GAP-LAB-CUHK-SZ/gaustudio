@@ -20,7 +20,7 @@ class VanillaRenderer(BaseRenderer):
         self.kernel_size = self.config['kernel_size']
         self.scaling_modifier = self.config['scaling_modifier']
         self.white_background = self.config['white_background']
-        self.bg_color = [1, 1, 1] if self.white_background else [0, 0, 0]
+        self.bg_color = torch.tensor([1, 1, 1], dtype=torch.float32) if self.white_background else torch.tensor([0, 0, 0], dtype=torch.float32)
         self.convert_SHs_python = self.config['convert_SHs_python']
         self.compute_cov3D_python = self.config['compute_cov3D_python']
         self.debug = self.config['debug']

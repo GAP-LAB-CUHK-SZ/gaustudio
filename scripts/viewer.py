@@ -49,8 +49,6 @@ class ClientThread(threading.Thread):
 
         self.stop_client = False  # whether stop this thread
 
-        client.camera.up_direction = viewer.up_direction
-
         @client.camera.on_update
         def _(cam: viser.CameraHandle) -> None:
             with self.client.atomic():
@@ -73,8 +71,6 @@ class ClientThread(threading.Thread):
             c2w[:3, :3] = R
             c2w[:3, 3] = pos
 
-            c2w = np.matmul(self.viewer.camera_transform, c2w)
-
             # change from OpenGL/Blender camera axes (Y up, Z back) to COLMAP (Y down, Z forward)
             c2w[:3, 1:3] *= -1
 
@@ -94,12 +90,12 @@ class ClientThread(threading.Thread):
 
             # construct camera
             camera = Camera(
-                R=R,
+                R=R.T,
                 T=T,
                 FoVx=cam.fov,
-                FoVy=cam.fov,
-                image_width=torch.tensor([image_width], dtype=torch.int),
-                image_height=torch.tensor([image_height], dtype=torch.int),
+                FoVy=cam.fov / aspect_ratio,
+                image_width=image_width,
+                image_height=image_height,
                 data_device=self.viewer.device
             )
 
@@ -166,7 +162,6 @@ class Viewer:
             host: str = "0.0.0.0",
             port: int = 8080,
             image_format: Literal["jpeg", "png"] = "jpeg",
-            reorient: Literal["auto", "enable", "disable"] = "auto",
             cameras_json: str = None,
     ):
         self.device = torch.device("cuda")
@@ -175,51 +170,16 @@ class Viewer:
         self.port = port
         self.image_format = image_format
 
-        self.up_direction = np.asarray([0., 0., 1.])
         self.gaussians = gaussians
         self.renderer = renderer
 
         cameras_json_path = cameras_json
-        # reorient the scene
-        self.camera_transform = self._reorient(cameras_json_path, mode=reorient)
+
         # load camera poses
         self.camera_poses = self.load_camera_poses(cameras_json_path)
 
         self.clients = {}
         
-    def _reorient(self, cameras_json_path: str, mode: str, dataset_type: str = None):
-        transform = torch.eye(4, dtype=torch.float)
-
-        if mode == "disable":
-            return transform
-
-        # detect whether cameras.json exists
-        is_cameras_json_exists = os.path.exists(cameras_json_path)
-
-        if is_cameras_json_exists is False:
-            if mode == "enable":
-                raise RuntimeError("{} not exists".format(cameras_json_path))
-            else:
-                return transform
-
-        # skip reorient if dataset type is blender
-        if dataset_type in ["blender", "nsvf"] and mode == "auto":
-            print("skip reorient for {} dataset".format(dataset_type))
-            return transform
-
-        print("load {}".format(cameras_json_path))
-        with open(cameras_json_path, "r") as f:
-            cameras = json.load(f)
-        up = torch.zeros(3)
-        for i in cameras:
-            up += torch.tensor(i["rotation"])[:3, 1]
-        up = -up / torch.linalg.norm(up)
-
-        print("up vector = {}".format(up))
-        self.up_direction = up
-
-        return transform
-
     def load_camera_poses(self, cameras_json_path: str):
         if os.path.exists(cameras_json_path) is False:
             return []
@@ -231,15 +191,12 @@ class Viewer:
             return
 
         self.camera_handles = []
-
-        camera_pose_transform = np.linalg.inv(self.camera_transform.cpu().numpy())
         for camera in self.camera_poses:
             name = camera["img_name"]
             c2w = np.eye(4)
             c2w[:3, :3] = np.asarray(camera["rotation"])
             c2w[:3, 3] = np.asarray(camera["position"])
             c2w[:3, 1:3] *= -1
-            c2w = np.matmul(camera_pose_transform, c2w)
 
             R = vtf.SO3.from_matrix(c2w[:3, :3])
             R = R @ vtf.SO3.from_x_radians(np.pi)
@@ -293,17 +250,6 @@ class Viewer:
         tabs = server.add_gui_tab_group()
 
         with tabs.add_tab("General"):
-            reset_up_button = server.add_gui_button(
-                "Reset up direction",
-                icon=viser.Icon.ARROW_AUTOFIT_UP,
-                hint="Reset the orbit up direction.",
-            )
-
-            @reset_up_button.on_click
-            def _(event: viser.GuiEvent) -> None:
-                assert event.client is not None
-                event.client.camera.up_direction = vtf.SO3(event.client.camera.wxyz) @ np.array([0.0, -1.0, 0.0])
-
             # add cameras
             self.add_cameras_to_scene(server)
 
@@ -402,8 +348,6 @@ if __name__ == "__main__":
     parser.add_argument("--host", "-a", type=str, default="0.0.0.0")
     parser.add_argument("--port", "-p", type=int, default=8080)
     parser.add_argument("--image_format", "--image-format", "-f", type=str, default="jpeg")
-    parser.add_argument("--reorient", type=str, default="auto",
-                        help="whether reorient the scene, available values: auto, enable, disable")
     args, extras = parser.parse_known_args()
 
     # set CUDA_VISIBLE_DEVICES then import pytorch-lightning

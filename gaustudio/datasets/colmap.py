@@ -2,7 +2,7 @@ from gaustudio.datasets.utils import read_extrinsics_text, read_intrinsics_text,
                                      read_extrinsics_binary, read_intrinsics_binary, read_points3D_binary, read_points3D_text, \
                                      focal2fov, getNerfppNorm, camera_to_JSON, storePly
 from gaustudio import datasets
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+from torch.utils.data import Dataset, DataLoader
 
 import os
 import cv2
@@ -64,6 +64,9 @@ class ColmapDatasetBase:
         for k in required_keys:
             if k not in config:
                 raise ValueError(f"Config must contain '{k}' key")
+    
+    def downsample(resolution_scale):
+        self.all_cameras = [c.downsample(resolution_scale) for c in self.all_cameras]
 
     def _initialize(self):
         try:
@@ -99,27 +102,17 @@ class ColmapDatasetBase:
         self.ply_path = ply_path
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
-        
+
+@datasets.register('colmap')
 class ColmapDataset(Dataset, ColmapDatasetBase):
-    def __init__(self, config, resolution_scale):
+    def __init__(self, config):
         super().__init__(config)
-        self.resolution_scale = resolution_scale
-        if self.eval:
-            train_cam_infos = [c.downsample(resolution_scale) for idx, c in enumerate(self.all_cameras) if idx % self.llffhold != 0]
-            test_cam_infos = [c.downsample(resolution_scale) for idx, c in enumerate(self.all_cameras) if idx % self.llffhold == 0]
-        else:
-            train_cam_infos = self.all_cameras
-            test_cam_infos = []
-        self.train_cameras = train_cam_infos
-        self.test_cameras = test_cam_infos
-        
+
     def __len__(self):
-        return len(self.all_images)
+        return len(self.all_cameras)
     
     def __getitem__(self, index):
-        return {
-            'index': index
-        }
+        return self.all_cameras[index]
     
     def export(self, save_path):
         json_cams = []
@@ -130,26 +123,3 @@ class ColmapDataset(Dataset, ColmapDatasetBase):
             json_cams.append(camera_to_JSON(id, cam))
         with open(save_path, 'w') as file:
             json.dump(json_cams, file)
-
-@datasets.register('colmap')
-class ColmapDataloader:
-    def __init__(self, 
-                 config: Dict,
-                 shuffle: bool = True,
-                 resolution_scales: List[float] = [1.0]):
-        
-        self.datasets = {}
-        for scale in resolution_scales:
-            self.datasets[scale] = ColmapDataset(config, scale)
-            
-    def get_dataloader(self, dataset):
-        return DataLoader(dataset, 
-                          num_workers=os.cpu_count(), 
-                          batch_size=1,
-                          pin_memory=True)
-
-    def get_train_dataloader(self, scale=1.0):
-        return self.get_dataloader(self.datasets[scale].train_cameras)
-
-    def get_test_dataloader(self, scale=1.0):
-        return self.get_dataloader(self.datasets[scale].test_cameras)

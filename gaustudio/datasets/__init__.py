@@ -72,11 +72,8 @@ class Camera:
     image_name: str = None
     image: np.array = None
 
-    data_device: torch.device = None
     def __post_init__(self):
         self._setup()
-        if self.data_device is not None:
-            self.to_device(self.data_device)
 
     def _setup(self):
         if self.world_view_transform is None:
@@ -94,12 +91,19 @@ class Camera:
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]
     
-    def to_device(self, device):
-        self.world_view_transform = self.world_view_transform.to(device)
-        self.full_proj_transform = self.full_proj_transform.to(device)
-        self.camera_center = self.camera_center.to(device)
-        self.data_device = device
+    def __repr__(self):
+        return f"Camera(FoVx={self.FoVx:.2f}, FoVy={self.FoVy:.2f}, image_width={self.image_width}, image_height={self.image_height}, znear={self.znear}, zfar={self.zfar})"
         
+    def to(self, device: torch.device):
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name) 
+            if isinstance(value, torch.Tensor):
+                setattr(self, field.name, value.to(device))
+            elif isinstance(value, (list, tuple)) and len(value) > 0 and isinstance(value[0], torch.Tensor):
+                setattr(self, field.name, [v.to(device) for v in value])
+
+        return self
+    
     @property
     def extrinsics(self):
         return self.world_view_transform.transpose(0,1).contiguous() # cam2world

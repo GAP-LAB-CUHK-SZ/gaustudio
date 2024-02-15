@@ -5,6 +5,21 @@ import torch.nn as nn
 import torch
 
 class BasePointCloud(nn.Module):
+    def __repr__(self):
+        properties = self.config["attributes"].keys()
+        return f"{self.__name__}(num_points={self.num_points}, properties={properties})"
+    
+    @torch.no_grad()
+    def to(self, device):
+        self.device = device
+        for elem in self.config["attributes"]:
+            if elem == 'xyz':
+                self._xyz = self._xyz.to(device)
+            elif elem == 'opacity':
+                self._opacity = self._opacity.to(device)
+            else:
+                setattr(self, '_'+elem, getattr(self, '_'+elem).to(device))
+
     def setup(self, device):
         self.device = device
         for elem in self.config["attributes"]:

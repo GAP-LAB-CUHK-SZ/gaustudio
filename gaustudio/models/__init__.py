@@ -8,7 +8,19 @@ def register(name):
     return decorator
 
 
-def make(name, config):
+def make(config):
+    if isinstance(config, str):
+        name = config
+        config = {}
+    else:
+        name = config.get('name')
+
+    if not name:
+        raise ValueError('Model name is required')
+
+    if name not in models:
+        raise ValueError(f'Unknown model: {name}')
+    print(name)
     model = models[name](config)
     return model
 

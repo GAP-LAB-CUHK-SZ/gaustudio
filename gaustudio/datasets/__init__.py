@@ -6,6 +6,15 @@ import math
 import os
 import torch
 
+
+def PILtoTorch(pil_image, resolution):
+    resized_image_PIL = pil_image.resize(resolution)
+    resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
+    if len(resized_image.shape) == 3:
+        return resized_image.permute(2, 0, 1)
+    else:
+        return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+
 def getWorld2View(R, t):
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = R.transpose()
@@ -164,7 +173,16 @@ def register(name):
     return decorator
 
 
-def make(name, config):
+def make(config):
+    if isinstance(config, str):
+        name = config
+        config = {}
+    else:
+        name = config.get('name')
+
+    if name not in datasets:
+        raise ValueError(f'Unknown dataset: {name}')
+
     dataset = datasets[name](config)
     return dataset
 

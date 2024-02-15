@@ -7,7 +7,7 @@ A collaboration friendly studio for Gaussians Splatting
 '''
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = [ "setuptools", "wheel", "torch", "tqdm", "vdb", "trimesh", "pymeshlab", "numpy", "rembg"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -16,3 +16,4 @@ exclude = ["tests*"]
 [project.scripts]
 # Note, add entrypoint name to scripts/completions/install.py to include CLI completion
 gs-process-data = "gaustudio.process_data.pipeline:main"
+gs-extract-mesh = "gaustudio.scripts.extract_mesh:main"

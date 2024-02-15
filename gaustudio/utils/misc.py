@@ -1,7 +1,5 @@
 import os
 from omegaconf import OmegaConf
-from packaging import version
-
 
 # ============ Register OmegaConf Recolvers ============= #
 OmegaConf.register_new_resolver('calc_exp_lr_decay_rate', lambda factor, n: factor**(1./n))
@@ -48,7 +46,3 @@ def get_rank():
         if rank is not None:
             return int(rank)
     return 0
-
-
-def parse_version(ver):
-    return version.parse(ver)

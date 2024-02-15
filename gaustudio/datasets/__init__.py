@@ -102,10 +102,18 @@ class Camera:
         
     @property
     def extrinsics(self):
-        extrinsic = np.hstack((self.R, self.T.reshape(-1, 1)))
-        extrinsic = np.vstack((extrinsic,[0,0,0,1]))
-        return torch.from_numpy(extrinsic).float()
-        
+        return self.world_view_transform.transpose(0,1).contiguous() # cam2world
+    
+    @property
+    def intrinsics(self):
+        tan_fovx = np.tan(self.FoVx / 2.0)
+        tan_fovy = np.tan(self.FoVy / 2.0)
+        focal_y = self.image_height / (2.0 * tan_fovy)
+        focal_x = self.image_width / (2.0 * tan_fovx)
+        return torch.tensor([[focal_x, 0, self.image_width / 2], 
+                             [0, focal_y, self.image_height / 2], 
+                             [0, 0, 1]]).float()
+     
     @extrinsics.setter
     def extrinsics(self, value):
         """Sets the extrinsic parameters of the camera"""
@@ -133,6 +141,17 @@ class Camera:
             self.image_height, self.image_width = gt_image.shape[1:3]
         else:
             self.image_height, self.image_width = resolution
+    
+    def downsample_scale(self, scale):
+        resolution = round(self.image_width/scale), round(self.image_height/scale)
+        if self.image is not None:
+            resized_image_rgb = PILtoTorch(self.image, resolution)
+            
+            gt_image = resized_image_rgb[:3, ...]
+            self.image = gt_image.clamp(0.0, 1.0)
+            self.image_height, self.image_width = gt_image.shape[1:3]
+        else:
+            self.image_width, self.image_height = resolution
 
 def register(name):
     def decorator(cls):

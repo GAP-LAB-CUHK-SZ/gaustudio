@@ -1,5 +1,4 @@
 from gaustudio.models.base import BasePointCloud
-# from gaustudio.utils import build_scaling_rotation, strip_symmetric, build_covariance_from_scaling_rotation, build_covariance_from_scaling_rotation_and_rotation_matrix, build_covariance_from_scaling_rotation_and_rotation_
 from gaustudio.models.utils import get_activation, build_covariance_from_scaling_rotation
 from gaustudio import models
 
@@ -54,7 +53,6 @@ class VanillaPointCloud(BasePointCloud):
     def get_attribute(self, attribute):
         if attribute in self.config["activations"]:
             activation_function = get_activation(self.config["activations"][attribute])
-            print(activation_function)
             return activation_function(getattr(self, '_'+attribute))
         else:
             return getattr(self, '_'+attribute)
@@ -72,6 +70,12 @@ class VanillaPointCloud(BasePointCloud):
         features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
         return torch.cat((features_dc, features_rest), dim=1)
     
+    @property
+    def get_center(self):
+        min_xyz, _ = torch.min(self._xyz, dim=0)
+        max_xyz, _ = torch.max(self._xyz, dim=0)
+        return (min_xyz + max_xyz) / 2
+
     def export(self, path):
         xyz = self._xyz
         normals = np.zeros_like(xyz)

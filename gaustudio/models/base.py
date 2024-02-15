@@ -29,6 +29,8 @@ class BasePointCloud(nn.Module):
             else:
                 names = [n.name for n in plydata.elements[0].properties if n.name.startswith(elem)]
                 names = sorted(names, key=lambda n: int(n.split('_')[-1]))
+                if len(names) == 0:
+                    continue
                 
                 assert len(names) == self.config["attributes"][elem]
                 

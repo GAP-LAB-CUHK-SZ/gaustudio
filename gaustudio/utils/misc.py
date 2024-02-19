@@ -46,3 +46,7 @@ def get_rank():
         if rank is not None:
             return int(rank)
     return 0
+
+def searchForMaxIteration(folder):
+    saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
+    return max(saved_iters)

@@ -76,7 +76,8 @@ class Camera:
 
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
-
+    camera_center: torch.tensor = None
+    
     image_path: str = None
     image_name: str = None
     image: np.array = None

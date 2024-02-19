@@ -77,8 +77,7 @@ def JSON_to_camera(camera_json, data_device=None):
         R=R,
         T=T,
         FoVx=focal2fov(fx, width),
-        FoVy=focal2fov(fy, height),
-        data_device=data_device
+        FoVy=focal2fov(fy, height)
     )
     
     return camera

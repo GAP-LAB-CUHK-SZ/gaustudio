@@ -65,8 +65,8 @@ class ColmapDatasetBase:
             if k not in config:
                 raise ValueError(f"Config must contain '{k}' key")
     
-    def downsample(resolution_scale):
-        self.all_cameras = [c.downsample(resolution_scale) for c in self.all_cameras]
+    def downsample_scale(self, resolution_scale):
+        self.all_cameras = [c.downsample_scale(resolution_scale) for c in self.all_cameras]
 
     def _initialize(self):
         try:

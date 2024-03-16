@@ -3,7 +3,7 @@ from gaustudio import renderers
 import torch
 import math
 from gaustudio.utils.sh_utils import eval_sh
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+from gaustudio_diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from einops import repeat
 from gaustudio.models.utils import get_activation
 

@@ -1,8 +1,9 @@
 <p align="center">
     <picture>
-    <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/a0b53d45-6b0b-4a0d-8deb-c354a292be95" width="100%">
+    <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/6e3a02eb-f2c0-4804-8506-72553f44abea" width="100%">
     </picture>
 </p>
+
 
 
 <p align="center"> <b>GAUStudio is a unified framework that supports the rapidly advancing field of 3D Gaussian Splatting (3DGS) and its applications. This framework targets to offer a comprehensive codebase, streamlined pipelines, and a wide range of tools and resources to facilitate the exploration, implementation, and deployment of 3DGS-based solutions, making it easier for users to leverage the potential of this cutting-edge technology.</b> </p>

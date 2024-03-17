@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
     parser.add_argument('--camera', '-c', default=None, help='path to cameras.json')
     parser.add_argument('--model', '-m', default=None, help='path to the model')
+    parser.add_argument('--output-dir', '-o', default=None, help='path to the output dir')
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')
     parser.add_argument('--resolution', default=2, type=int, help='downscale resolution')
     parser.add_argument('--sh', default=0, type=int, help='default SH degree')
@@ -56,12 +57,12 @@ def main():
             loaded_iter = searchForMaxIteration(os.path.join(args.model, "point_cloud"))
         else:
             loaded_iter = args.load_iteration
-        work_dir = os.path.join(model_path, "renders", "iteration_{}".format(loaded_iter)) 
+        work_dir = os.path.join(model_path, "renders", "iteration_{}".format(loaded_iter)) if args.output_dir is None else args.output_dir
         
         print("Loading trained model at iteration {}".format(loaded_iter))
         pcd.load(os.path.join(args.model,"point_cloud", "iteration_" + str(loaded_iter), "point_cloud.ply"))
     elif model_path.endswith(".ply"):
-        work_dir = os.path.join(os.path.dirname(model_path), os.path.basename(model_path)[:-4])
+        work_dir = os.path.join(os.path.dirname(model_path), os.path.basename(model_path)[:-4]) if args.output_dir is None else args.output_dir
         pcd.load(model_path)
     else:
         print("Model not found at {}".format(model_path))
@@ -86,10 +87,8 @@ def main():
 
     render_path = os.path.join(work_dir, "images")
     mask_path = os.path.join(work_dir, "masks")
-    render_depths_path = os.path.join(work_dir, "depths")
     os.makedirs(render_path, exist_ok=True)
     os.makedirs(mask_path, exist_ok=True)
-    os.makedirs(render_depths_path, exist_ok=True)
     for camera in tqdm(cameras[::3]):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")

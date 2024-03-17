@@ -1,0 +1,4 @@
+*.so
+build/
+gaustudio_diff_gaussian_rasterization.egg-info/
+dist/

@@ -4,7 +4,7 @@ from plyfile import PlyData, PlyElement
 import torch.nn as nn
 import torch
 import math
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+from gaustudio_diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 
 class BaseRenderer:
     def render(self, viewpoint_camera, gaussian_model):

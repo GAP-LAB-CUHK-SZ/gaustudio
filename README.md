@@ -1,6 +1,6 @@
 <p align="center">
     <picture>
-    <img alt="gaustudio" src="" width="50%">
+    <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/a0b53d45-6b0b-4a0d-8deb-c354a292be95" width="100%">
     </picture>
 </p>
 

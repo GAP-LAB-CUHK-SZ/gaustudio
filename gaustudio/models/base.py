@@ -15,6 +15,7 @@ class BasePointCloud(nn.Module):
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.config = {**self.default_conf, **config}
         self.setup(device)
+        self.setup_functions()
 
     @torch.no_grad()
     def to(self, device):
@@ -33,6 +34,9 @@ class BasePointCloud(nn.Module):
         for elem in self.config["attributes"]:
             dummy_data = torch.empty(num_points, device=device)
             setattr(self, '_'+elem, dummy_data)
+    
+    def setup_functions(self):
+        pass
     
     def update(self, **args):
         for elem in self.config["attributes"]:

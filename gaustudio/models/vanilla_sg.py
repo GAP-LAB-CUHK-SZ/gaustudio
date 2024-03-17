@@ -24,14 +24,7 @@ class VanillaPointCloud(BasePointCloud):
     }
     
     def __init__(self, config, device=None) -> None:
-        super().__init__()
-        if device is None:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-        self.config = {**self.default_conf, **config}
-        self.setup(device)
-        self.setup_functions()
-
+        super().__init__(config, device)
         self.active_sh_degree = 0
         self.max_sh_degree = self.config["sh_degree"]
         self.max_radii2D = torch.empty(0)

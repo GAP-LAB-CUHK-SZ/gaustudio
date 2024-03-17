@@ -1,0 +1,28 @@
+# name: vanilla-${basename:${dataset.root_dir}}
+name: vanilla
+tag: ""
+seed: 42
+
+dataset:
+  name: colmap
+  source_path: ???
+  model_path: ???
+  images: "images"
+  resolution: -1
+  data_device: "cuda"
+  eval: False
+
+model:
+  name: vanilla_sg
+  pointcloud:
+    name: vanilla_pcd
+    sh_degree: 3
+    resume_path: Null
+
+renderer:
+  name: vanilla_renderer
+  scaling_modifier: 1.
+  white_background: False
+  convert_SHs_python: False
+  compute_cov3D_python: False
+  debug: False

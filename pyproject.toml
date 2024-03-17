@@ -1,0 +1,20 @@
+# pyproject.toml
+[project]
+name = "gaustudio"
+version = "0.1.0"
+description = '''
+A collaboration friendly studio for Gaussians Splatting
+'''
+
+[build-system]
+requires = [ "setuptools", "wheel", "torch", "tqdm", "vdb", "trimesh", "pymeshlab", "numpy", "rembg"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude = ["tests*"]
+
+[project.scripts]
+# Note, add entrypoint name to scripts/completions/install.py to include CLI completion
+gs-process-data = "gaustudio.scripts.process_data:main"
+gs-extract-mesh = "gaustudio.scripts.extract_mesh:main"
+gs-render-mesh = "gaustudio.scripts.render_mesh:main"

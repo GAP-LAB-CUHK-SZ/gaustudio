@@ -1,0 +1,11 @@
+plyfile
+torch
+torchvision
+tqdm
+opencv-python-headless
+vdbfusion
+trimesh
+omegaconf
+einops
+kiui
+scipy

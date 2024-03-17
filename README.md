@@ -45,6 +45,14 @@ Install the necessary dependencies by running the following command:
 pip install -r requirements.txt
 ```
 
+## Step 3: Install Customed Rasterizer and Gaustudio
+```
+cd submodules/gaustudio-diff-gaussian-rasterization
+python setup.py install
+cd ../../
+python setup.py develop
+```
+
 ## Optional Step: Install PyTorch3D
 If you require mesh rendering and further mesh refinement, you can install PyTorch3D follow the [link](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md):
 

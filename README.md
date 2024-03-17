@@ -89,4 +89,4 @@ GauStudio will supoort more 3DGS-based methods in the near future, if you are al
 - [ ] Release Sugar and GaussianPro training 
 
 # License
-The code is released under the MIT License except the rasterizer. We also welcome commercial cooperation to advance the applications of 3DGS and address unresolved issues. If you are interested, please feel welcome to contact Chongjie at chongjieye@link.cuhk.edu.cn
+The code is released under the MIT License except the rasterizer. We also welcome commercial cooperation to advance the applications of 3DGS and address unresolved issues. If you are interested, welcome to contact Chongjie at chongjieye@link.cuhk.edu.cn

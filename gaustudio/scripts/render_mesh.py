@@ -129,7 +129,7 @@ def main():
         image_size = ((camera.image_height, camera.image_width),)  # (h, w)
         fcl_screen = ((intrinsics[0, 0], intrinsics[1, 1]),)  # fcl_ndc * min(image_size) / 2
         prp_screen = ((intrinsics[0, 2], intrinsics[1, 2]), )  # w / 2 - px_ndc * min(image_size) / 2, h / 2 - py_ndc * min(image_size) / 2
-        cameras = PerspectiveCameras(focal_length=fcl_screen, principal_point=prp_screen, in_ndc=False, image_size=image_size, R=R, T=T, device="cuda")
+        view = PerspectiveCameras(focal_length=fcl_screen, principal_point=prp_screen, in_ndc=False, image_size=image_size, R=R, T=T, device="cuda")
         raster_settings = RasterizationSettings(
             image_size=image_size[0],
             blur_radius=0.0, 
@@ -137,7 +137,7 @@ def main():
         )
         lights = AmbientLights(device="cuda")
         rasterizer = MeshRasterizer(
-            cameras=cameras,
+            cameras=view,
             raster_settings=raster_settings
         )
         shader = pytorch3d.renderer.SoftSilhouetteShader()
@@ -148,29 +148,37 @@ def main():
         images, fragments = renderer(mesh)
         
         id_str = camera.image_name
-        torchvision.utils.save_image(camera.image.permute(2, 0, 1), os.path.join(render_path, f"{id_str}.png"))        
-
+        try:
+            torchvision.utils.save_image(camera.image.permute(2, 0, 1), os.path.join(render_path, f"{_id}.png"))        
+        except:
+            pass
         mask = images[0, ..., 3].cpu().numpy() > 0
-        cv2.imwrite(os.path.join(mask_path, f"{id_str}.png"), (mask * 255).astype(np.uint8))
+        cv2.imwrite(os.path.join(mask_path, f"{_id}.png"), (mask * 255).astype(np.uint8))
 
         rendered_depth = fragments.zbuf[0, :, :, 0].cpu().numpy()
         rendered_depth_vis, _ = np_depth_to_colormap(rendered_depth)
-        cv2.imwrite(os.path.join(render_depths_path, f"{id_str}.png"), (rendered_depth * 1000).astype(np.uint16))
+        cv2.imwrite(os.path.join(render_depths_path, f"{_id}.png"), (rendered_depth * 1000).astype(np.uint16))
         cv2.imwrite(os.path.join(render_depths_path, f"{_id}_vis.png"), rendered_depth_vis.astype(np.uint8))
         
         # Save extrinsic and intrinsic
         P_inv = camera.extrinsics.inverse()
-        np.savetxt(os.path.join(pose_path, f"{id_str}.txt"), P_inv.cpu().numpy())
+        np.savetxt(os.path.join(pose_path, f"{_id}.txt"), P_inv.cpu().numpy())
         np.savetxt(os.path.join(intrinsic_path, f"intrinsic_depth.txt"), camera.intrinsics.cpu().numpy())
         np.savetxt(os.path.join(intrinsic_path, f"intrinsic_color.txt"), camera.intrinsics.cpu().numpy())
         
         """ obtain normal map """
         normal = get_normals_from_fragments(mesh, fragments)[0, :, :, 0] # [H,W,3]
         normal = torch.nn.functional.normalize(normal, 2.0, 2) # normalize to unit-vector
-        w2c_R = cameras.R[0].permute(0, 1) # 3x3, column-major
-        camera_normal = normal @ w2c_R.transpose(0, 1) # from world_normal to camera_normal
+        w2c_R = camera.extrinsics.inverse()[:3, :3].to(normal.device) # 3x3, column-major
+        camera_normal = normal @ w2c_R # from world_normal to camera_normal
         normal = camera_normal.cpu().numpy()
-        cv2.imwrite(os.path.join(normal_path, f"{id_str}.png"), ((normal+1)/2*255).astype(np.uint8))
+        normal[..., 2] *=-1
+        normal[..., 1] *=-1
+        
+        # normal = -normal
+        
+        normal = cv2.cvtColor(((normal+1)/2*255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+        cv2.imwrite(os.path.join(normal_path, f"{_id}.png"), normal)
         
         _id += 1
     

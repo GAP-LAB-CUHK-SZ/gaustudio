@@ -129,7 +129,7 @@ def main():
         image_size = ((camera.image_height, camera.image_width),)  # (h, w)
         fcl_screen = ((intrinsics[0, 0], intrinsics[1, 1]),)  # fcl_ndc * min(image_size) / 2
         prp_screen = ((intrinsics[0, 2], intrinsics[1, 2]), )  # w / 2 - px_ndc * min(image_size) / 2, h / 2 - py_ndc * min(image_size) / 2
-        cameras = PerspectiveCameras(focal_length=fcl_screen, principal_point=prp_screen, in_ndc=False, image_size=image_size, R=R, T=T, device="cuda")
+        view = PerspectiveCameras(focal_length=fcl_screen, principal_point=prp_screen, in_ndc=False, image_size=image_size, R=R, T=T, device="cuda")
         raster_settings = RasterizationSettings(
             image_size=image_size[0],
             blur_radius=0.0, 
@@ -137,7 +137,7 @@ def main():
         )
         lights = AmbientLights(device="cuda")
         rasterizer = MeshRasterizer(
-            cameras=cameras,
+            cameras=view,
             raster_settings=raster_settings
         )
         shader = pytorch3d.renderer.SoftSilhouetteShader()
@@ -148,8 +148,10 @@ def main():
         images, fragments = renderer(mesh)
         
         id_str = camera.image_name
-        torchvision.utils.save_image(camera.image.permute(2, 0, 1), os.path.join(render_path, f"{_id}.png"))        
-
+        try:
+            torchvision.utils.save_image(camera.image.permute(2, 0, 1), os.path.join(render_path, f"{_id}.png"))        
+        except:
+            pass
         mask = images[0, ..., 3].cpu().numpy() > 0
         cv2.imwrite(os.path.join(mask_path, f"{_id}.png"), (mask * 255).astype(np.uint8))
 

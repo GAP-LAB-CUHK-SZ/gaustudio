@@ -8,7 +8,7 @@
 <p align="center"> <b>GauStudio is a modular framework that supports the rapidly advancing field of 3D Gaussian Splatting (3DGS) and its applications. This framework targets to offer a comprehensive codebase, streamlined pipelines, and a wide range of tools and resources to facilitate the exploration, implementation, and deployment of 3DGS-based solutions, making it easier for users to leverage the potential of this cutting-edge technology.</b> </p>
 
 
-### [Paper(Coming Soon) ]() | [Colab(Comming Soon)]() | [Document(Comming Soon)]()
+### [Paper](https://drive.google.com/file/d/1mizzZSXn-YToww7kW3OV0lUbfME9Mobg/view?usp=sharing) | [Colab(Comming Soon)]() | [Document(Comming Soon)]()
 <br/>
 
 # Installation

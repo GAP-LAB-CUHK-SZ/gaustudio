@@ -188,4 +188,4 @@ def make(config):
     return dataset
 
 
-from . import colmap
+from . import colmap, waymo

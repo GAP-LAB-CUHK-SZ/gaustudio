@@ -93,7 +93,7 @@ class Camera:
             self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
         
         if self.image_path is not None:
-            self.image = torch.from_numpy(np.array(Image.open(self.image_path))) / 255.0
+            self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
             
@@ -188,4 +188,4 @@ def make(config):
     return dataset
 
 
-from . import colmap, waymo, polycam, scannet, mvsnet
+from . import colmap, waymo, polycam, scannet, mvsnet, nerf

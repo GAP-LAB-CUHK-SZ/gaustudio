@@ -188,4 +188,4 @@ def make(config):
     return dataset
 
 
-from . import colmap, waymo, polycam, scannet
+from . import colmap, waymo, polycam, scannet, mvsnet

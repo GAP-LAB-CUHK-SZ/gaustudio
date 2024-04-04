@@ -3,12 +3,12 @@ colmap feature_extractor \
     --image_path=${1}/images \
     --ImageReader.camera_model=SIMPLE_RADIAL \
     --ImageReader.single_camera=true \
-    --SiftExtraction.use_gpu=true \
+    --SiftExtraction.use_gpu=false \
     --SiftExtraction.num_threads=32
 
 colmap sequential_matcher \
     --database_path=${1}/database.db \
-    --SiftMatching.use_gpu=true
+    --SiftMatching.use_gpu=false
 
 mkdir -p ${1}/sparse
 colmap mapper \

@@ -96,7 +96,7 @@ texrecon ./images ./fused_mesh.ply ./textured_mesh --outlier_removal=gauss_clamp
 ```
 
 # Plan of Release
-GauStudio will supoort more 3DGS-based methods in the near future, if you are also interested in GauStudio and want to improve it, welcome to submit PR!
+GauStudio will support more 3DGS-based methods in the near future, if you are also interested in GauStudio and want to improve it, welcome to submit PR!
 - [x] Release mesh extraction and rendering toolkit
 - [ ] Release BlendedMVS, Nerf-Synthetic, and Blender datasets in the COLMAP format, along with the corresponding processing code.
 - [ ] Release Semi-Dense, MVSplat-based, and DepthAnything-based Gaussians Initialization

@@ -78,7 +78,7 @@ def main():
         for camera_json in camera_data:
             camera = JSON_to_camera(camera_json, "cuda")
             cameras.append(camera)
-        vdb_volume = vdbfusion.VDBVolume(voxel_size=0.02, sdf_trunc=0.08, space_carving=True) # For Scene
+        vdb_volume = vdbfusion.VDBVolume(voxel_size=0.01, sdf_trunc=0.04, space_carving=False) # For Scene
     else:
         assert "Camera data not found at {}".format(args.camera)
 

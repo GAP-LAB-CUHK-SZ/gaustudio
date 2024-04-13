@@ -1,14 +1,15 @@
 <p align="center">
     <picture>
-    <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/c7ae8183-583f-4467-ab67-e34c77c3bfd6" width="100%">
+    <img alt="gaustudio" src="assets/logo.PNG" width="30%">
     </picture>
 </p>
 
 
 <p align="center"> <b>GauStudio is a modular framework that supports the rapidly advancing field of 3D Gaussian Splatting (3DGS) and its applications. This framework targets to offer a comprehensive codebase, streamlined pipelines, and a wide range of tools and resources to facilitate the exploration, implementation, and deployment of 3DGS-based solutions, making it easier for users to leverage the potential of this cutting-edge technology.</b> </p>
 
+ <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/c7ae8183-583f-4467-ab67-e34c77c3bfd6" width="100%">
 
-### [Paper](https://drive.google.com/file/d/1mizzZSXn-YToww7kW3OV0lUbfME9Mobg/view?usp=sharing) | [Colab(Comming Soon)]() | [Document(Comming Soon)]()
+### [Paper](https://drive.google.com/file/d/1mizzZSXn-YToww7kW3OV0lUbfME9Mobg/view?usp=sharing) | [Colab](https://colab.research.google.com/drive/1TnuwI5GiUEZH07sS1uc6KKJNCpYWjIBD?usp=sharing) | [Document(Comming Soon)]()
 <br/>
 
 # Installation
@@ -98,7 +99,7 @@ texrecon ./images ./fused_mesh.ply ./textured_mesh --outlier_removal=gauss_clamp
 # Plan of Release
 GauStudio will support more 3DGS-based methods in the near future, if you are also interested in GauStudio and want to improve it, welcome to submit PR!
 - [x] Release mesh extraction and rendering toolkit
-- [ ] Release BlendedMVS, Nerf-Synthetic, and Blender datasets in the COLMAP format, along with the corresponding processing code.
+- [x] Release common nerf and neus dataset loader and preprocessing code.
 - [ ] Release Semi-Dense, MVSplat-based, and DepthAnything-based Gaussians Initialization
 - [ ] Release of full pipelines for training
 - [ ] Release Gaussian Sky Modeling and Sky Mask Generation Scripts

@@ -8,7 +8,7 @@
 
  <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/c7ae8183-583f-4467-ab67-e34c77c3bfd6" width="100%">
 
-### [Paper](https://drive.google.com/file/d/1mizzZSXn-YToww7kW3OV0lUbfME9Mobg/view?usp=sharing) | [Colab](https://colab.research.google.com/drive/1TnuwI5GiUEZH07sS1uc6KKJNCpYWjIBD?usp=sharing) | [Document(Comming Soon)]()
+### [Paper](https://drive.google.com/file/d/1mizzZSXn-YToww7kW3OV0lUbfME9Mobg/view?usp=sharing) | [Document(Comming Soon)]()
 <br/>
 
 # Installation

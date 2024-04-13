@@ -53,4 +53,5 @@ class BaseRenderer:
                 "rendered_median_depth": rendered_median_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
+                "rendered_final_opacity": rendered_final_opacity,
                 "radii": radii}

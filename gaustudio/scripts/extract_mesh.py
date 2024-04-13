@@ -94,9 +94,9 @@ def main():
         camera = camera.to("cuda")
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
-        rendering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        rendering = render_pkg["render"]
         rendered_depth = render_pkg["rendered_median_depth"][0]
-        invalid_mask = rendered_depth > 10.
+        invalid_mask = render_pkg["rendered_final_opacity"][0] < 0.5
 
         rendering[:, invalid_mask] = 0.
         rendered_depth[invalid_mask] = 0

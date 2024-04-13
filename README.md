@@ -4,8 +4,7 @@
     </picture>
 </p>
 
-
-<p align="center"> <b>GauStudio is a modular framework that supports the rapidly advancing field of 3D Gaussian Splatting (3DGS) and its applications. This framework targets to offer a comprehensive codebase, streamlined pipelines, and a wide range of tools and resources to facilitate the exploration, implementation, and deployment of 3DGS-based solutions, making it easier for users to leverage the potential of this cutting-edge technology.</b> </p>
+<p align="center"> <b>GauStudio is a modular framework that supports and accelerates research and development in the rapidly advancing field of 3D Gaussian Splatting (3DGS) and its diverse applications.</b> </p>
 
  <img alt="gaustudio" src="https://github.com/GAP-LAB-CUHK-SZ/gaustudio/assets/40767265/c7ae8183-583f-4467-ab67-e34c77c3bfd6" width="100%">
 
@@ -108,6 +107,18 @@ GauStudio will support more 3DGS-based methods in the near future, if you are al
 - [ ] Release 'gs-viewer' for online visualization and 'gs-compress' for 3DGS postprocessing
 - [ ] Release SparseGS and FSGS training
 - [ ] Release Sugar and GaussianPro training 
+
+# BibTeX
+If you found this library useful for your research, please consider citing:
+```
+@article{ye2024gaustudio,
+  title={GauStudio: A Modular Framework for 3D Gaussian Splatting and Beyond},
+  author={Ye, Chongjie and Nie, Yinyu and Chang, Jiahao and Chen, Yuantao and Zhi, Yihao and Han, Xiaoguang},
+  journal={arXiv preprint arXiv:2403.19632},
+  year={2024}
+}
+```
+
 
 # License
 The code is released under the MIT License except the rasterizer. We also welcome commercial cooperation to advance the applications of 3DGS and address unresolved issues. If you are interested, welcome to contact Chongjie at chongjieye@link.cuhk.edu.cn

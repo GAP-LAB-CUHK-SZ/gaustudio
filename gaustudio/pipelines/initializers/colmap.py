@@ -70,7 +70,7 @@ class ColmapInitializer(BaseInitializer):
                 pts3d = read_points3D_binary(candidate_path)
                 xyz = np.array([pts3d[k].xyz for k in pts3d])
                 normal = np.zeros_like(xyz)
-                rgb = np.array([pts3d[k].xyz for k in pts3d])
+                rgb = np.array([pts3d[k].rgb for k in pts3d])
                 pcd.update(xyz=xyz, normal=normal, rgb=rgb)
                 break
         return pcd

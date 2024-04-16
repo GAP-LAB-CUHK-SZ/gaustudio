@@ -81,7 +81,10 @@ class Camera:
     image_path: str = None
     image_name: str = None
     image: np.array = None
-
+    mask: np.array = None
+    normal: np.array = None
+    depth: np.array = None
+    
     def __post_init__(self):
         self._setup()
 
@@ -96,7 +99,7 @@ class Camera:
             self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
-            
+
         # Compute camera center from inverse view matrix
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]
@@ -153,6 +156,8 @@ class Camera:
             gt_image = resized_image_rgb[:3, ...]
             self.image = gt_image.clamp(0.0, 1.0)
             self.image_height, self.image_width = gt_image.shape[1:3]
+            
+            # TODO: Add mask, normal, depth resize
         else:
             self.image_height, self.image_width = resolution
     
@@ -188,4 +193,4 @@ def make(config):
     return dataset
 
 
-from . import colmap, waymo, polycam, scannet, mvsnet, nerf, nsvf, deepvoxels, nero, mobilebrick
+from . import colmap, waymo, polycam, scannet, mvsnet, nerf, nsvf, deepvoxels, nero, mobilebrick, neus

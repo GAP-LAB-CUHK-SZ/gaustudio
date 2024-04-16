@@ -34,6 +34,12 @@ class ColmapInitializer(BaseInitializer):
         for img_id, camera in enumerate(dataset):
             img_name = str(img_id).zfill(8)
             torchvision.utils.save_image(camera.image.permute(2, 0, 1), f'{self.ws_dir}/images/{img_name}.jpg')
+            
+            if camera.mask is not None:
+                self.masks_dir = f'{self.ws_dir}/masks'
+                os.makedirs(self.masks_dir, exist_ok=True)
+                torchvision.utils.save_image(camera.mask.float(), f'{self.ws_dir}/masks/{img_name}.png')
+                
             self.pose_dict[img_name] = camera.extrinsics.inverse()
             intrinsics_dict = {'width': camera.image_width, 'height': camera.image_height, 
                       'fx': camera.intrinsics[0, 0], 'fy': camera.intrinsics[1, 1],

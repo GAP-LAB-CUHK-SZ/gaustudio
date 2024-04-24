@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm
+from gaustudio import datasetsfrom gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
 from typing import List, Dict 
 from pathlib import Path
 
@@ -52,6 +52,15 @@ class MobileBrickDatasetBase:
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
     
+    def export(self, save_path):
+        json_cams = []
+        camlist = []
+        camlist.extend(self.all_cameras)
+        for id, cam in enumerate(camlist):
+            json_cams.append(camera_to_JSON(id, cam))
+        with open(save_path, 'w') as file:
+            json.dump(json_cams, file)
+            
 @datasets.register('mobilebrick')
 class MobileBrickDataset(Dataset, MobileBrickDatasetBase):
     def __init__(self, config):

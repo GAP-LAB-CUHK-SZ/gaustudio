@@ -2,7 +2,8 @@
 This software is used as the rasterization engine in [GauStudio](https://github.com/GAP-LAB-CUHK-SZ/gaustudio), and supports:
 
 * Analytical gradient for rendered opacity.
-* Inference median depthf thanks to [JonathonLuiten](https://github.com/JonathonLuiten/diff-gaussian-rasterization-w-depth)
+* Inference median depth thanks to [JonathonLuiten](https://github.com/JonathonLuiten/diff-gaussian-rasterization-w-depth)
+* Analytical gradient for median depth.
 * Analytical gradient for rendered depth thanks to [ingra14m](https://github.com/ingra14m/depth-diff-gaussian-rasterization) and[slothfulxtx](https://github.com/slothfulxtx).
 
 The code is built on top of the original Differential Gaussian Rasterization used in "3D Gaussian Splatting for Real-Time Rendering of Radiance Fields".

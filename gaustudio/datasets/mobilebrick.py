@@ -7,16 +7,19 @@ from gaustudio import datasets
 from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
 from typing import List, Dict 
 from pathlib import Path
+import torch
 
 class MobileBrickDatasetBase:
     def __init__(self, config: Dict):
         self.source_path = Path(config['source_path'])
         
         self.image_dir = self.source_path / "image"
+        self.mask_dir = self.source_path / "mask"
         self.pose_dir = self.source_path /  "pose"
         self.intrinsic_dir = self.source_path / 'intrinsic'
         self.image_filenames = sorted([os.path.join(self.image_dir, f) for f in os.listdir(self.image_dir)],
                                       key=lambda fn: int(os.path.splitext(os.path.basename(fn))[0]))
+        self.w_mask = config.get('w_mask', False)
         
         self._initialize()
         self.ply_path = None
@@ -31,8 +34,8 @@ class MobileBrickDatasetBase:
         all_cameras_unsorted = []
         
         for image_path in self.image_filenames:
-            
-            _id = os.path.splitext(os.path.basename(image_path))[0]
+            image_name = os.path.basename(image_path)
+            _id = os.path.splitext(image_name)[0]
             _image = cv2.imread(image_path)
             height, width, _ = _image.shape
 
@@ -46,7 +49,24 @@ class MobileBrickDatasetBase:
             
             FoVy = focal2fov(fy, height)
             FoVx = focal2fov(fx, width)
-            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, image_width=width, image_height=height)
+            
+            mask_path = self.mask_dir / f'{_id}.png'
+            if self.w_mask and os.path.exists(mask_path):
+                mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+                _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY) # Ensure mask is binary so multiply operation works as expected
+                mask = cv2.resize(mask, (width, height)) # Resize the mask to match the size of the image
+                background_mask = cv2.bitwise_not(mask) # Invert the mask to get the background
+                black_background = np.full(_image.shape, 0, dtype=np.uint8) # Make the background black
+
+                # Combine the white background and the mask
+                background = cv2.bitwise_and(black_background, black_background, mask=background_mask)
+                masked_image = cv2.bitwise_and(_image, _image, mask=mask)
+                _image = cv2.addWeighted(masked_image, 1, background, 1, 0)
+            else:
+                mask = None
+            _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
+            _mask_tensor = torch.from_numpy(mask)
+            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image=_image_tensor, image_name=image_name, image_width=width, image_height=height, mask=_mask_tensor)
             all_cameras_unsorted.append(_camera)
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)

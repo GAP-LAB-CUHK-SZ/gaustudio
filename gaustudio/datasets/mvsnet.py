@@ -3,7 +3,8 @@ import json
 import cv2
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-from gaustudio import datasetsfrom gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
+from gaustudio import datasets
+from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
 from typing import List, Dict 
 from pathlib import Path
 

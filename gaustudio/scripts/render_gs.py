@@ -12,7 +12,7 @@ import torchvision
 from tqdm import tqdm
 import trimesh
 import numpy as np
-from torchvision.transforms.functional import to_pil_image, pil_to_tensor
+from gaustudio.cameras import *
 def searchForMaxIteration(folder):
     saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
     return max(saved_iters)
@@ -36,7 +36,6 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import models, datasets, renderers
-    from gaustudio.cameras import get_path_from_json, get_interpolated_cameras
     from gaustudio.utils.graphics_utils import depth2point
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
@@ -68,6 +67,9 @@ def main():
         args.camera = os.path.join(model_path, "cameras.json")
     if os.path.exists(args.camera):
         cameras = get_path_from_json(args.camera)
+        cameras = downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15)
+        cameras = smoothen_cameras(cameras, window_length=len(cameras)//5)
+        cameras = upsample_cameras_velocity(cameras, meters_per_frame=0.01, angles_per_frame=1)
     else:
         assert "Camera data not found at {}".format(args.camera)
 
@@ -78,27 +80,29 @@ def main():
     mask_path = os.path.join(work_dir, "masks")
     os.makedirs(render_path, exist_ok=True)
     os.makedirs(mask_path, exist_ok=True)
+    rendered_images = []
     for camera in tqdm(cameras):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
         rendering = render_pkg["render"]
-        rendered_depth = render_pkg["rendered_median_depth"][0]
         invalid_mask = render_pkg["rendered_final_opacity"][0] < 0.5
-
         rendering[:, invalid_mask] = 0.
-        rendered_depth[invalid_mask] = 0
 
-        rendered_pcd_cam, rendered_pcd_world = depth2point(rendered_depth, camera.intrinsics.to(rendered_depth.device), 
-                                                                      camera.extrinsics.to(rendered_depth.device))
-        rendered_pcd_world = rendered_pcd_world[~invalid_mask]
-        
-        P = camera.extrinsics
-        P_inv = P.inverse()
-        cam_center = P_inv[:3, 3]
         torchvision.utils.save_image(rendering, os.path.join(render_path, f"{camera.image_name}.png"))
         torchvision.utils.save_image((~invalid_mask).float(), os.path.join(mask_path, f"{camera.image_name}.png"))
         
+        # Convert the rendered image to a numpy array
+        rendering_np = rendering.permute(1, 2, 0).cpu().numpy() * 255
+        rendering_np = rendering_np.astype(np.uint8)
+
+        # Append the rendered image to the list
+        rendered_images.append(rendering_np)
+
+    # Create a video from the list of rendered images
+    from moviepy.editor import ImageSequenceClip
+    clip = ImageSequenceClip(rendered_images, fps=30)
+    clip.write_videofile(os.path.join(work_dir, 'rgb.mp4'))
 if __name__ == '__main__':
     main()

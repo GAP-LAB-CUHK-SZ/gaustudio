@@ -14,13 +14,14 @@ def get_path_from_json(json_path):
         cameras.append(camera)
     return cameras
 
-def upsample_cameras_velocity(cameras, meters_per_frame=0.1):
+def upsample_cameras_velocity(cameras, meters_per_frame=0.1, angles_per_frame=1):
     """
     Upsample cameras to achieve a target average velocity.
 
     Args:
         cameras (list): List of camera objects with extrinsics (transformation matrices).
         meters_per_frame (float): Target average velocity (meters per frame).
+        angles_per_frame (float): Target average angular velocity (degrees per frame).
 
     Returns:
         list: List of upsampled camera objects.
@@ -32,7 +33,10 @@ def upsample_cameras_velocity(cameras, meters_per_frame=0.1):
         next_camera = cameras[idx + 1]
 
         translation_change = np.linalg.norm(next_camera.extrinsics[:3, 3] - current_camera.extrinsics[:3, 3])
-        steps_per_transition = max(int(translation_change / meters_per_frame), 1)
+        rotation_change = np.rad2deg(np.arccos(np.clip((np.trace(np.dot(current_camera.extrinsics[:3, :3].T, next_camera.extrinsics[:3, :3])) - 1) / 2, -1.0, 1.0)))
+        steps_per_transition_translation = max(int(translation_change / meters_per_frame), 1)
+        steps_per_transition_rotation = max(int(rotation_change / angles_per_frame), 1)
+        steps_per_transition = max(steps_per_transition_translation, steps_per_transition_rotation)
 
         intermediate_cameras = get_interpolated_poses(current_camera.extrinsics, next_camera.extrinsics, steps=steps_per_transition)
 
@@ -44,14 +48,14 @@ def upsample_cameras_velocity(cameras, meters_per_frame=0.1):
             total_idx += 1
 
     return new_cameras
-
-def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=0.1):
+def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15):
     """
     Downsample cameras based on translation and rotation thresholds.
 
     Args:
         cameras (list): List of camera objects with extrinsics (translation and rotation).
-        translation_threshold (float): Maximum        rotation_threshold (float): Maximum rotation change (in radians) between keyframes.
+        translation_threshold (float): Maximum        
+        rotation_threshold (float): Maximum rotation change (in radians) between keyframes.
 
     Returns:
         list: List of downsampled camera objects.
@@ -70,7 +74,7 @@ def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=0.
         # Calculate rotation change
         prev_rotmat = prev_camera.extrinsics[:3, :3]
         curr_rotmat = camera.extrinsics[:3, :3]
-        rotation_change = np.arccos((np.trace(prev_rotmat.T @ curr_rotmat) - 1) / 2)
+        rotation_change = np.rad2deg(np.arccos((np.trace(prev_rotmat.T @ curr_rotmat) - 1) / 2))
         # Check if translation or rotation change exceeds the threshold
         if translation_change > translation_threshold or rotation_change > rotation_threshold:
             downsampled_cameras.append(camera)

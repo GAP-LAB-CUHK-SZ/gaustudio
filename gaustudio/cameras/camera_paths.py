@@ -14,21 +14,35 @@ def get_path_from_json(json_path):
         cameras.append(camera)
     return cameras
 
-def upsample_cameras(cameras, steps_per_transition=30):
+def upsample_cameras_velocity(cameras, meters_per_frame=0.1):
+    """
+    Upsample cameras to achieve a target average velocity.
+
+    Args:
+        cameras (list): List of camera objects with extrinsics (transformation matrices).
+        meters_per_frame (float): Target average velocity (meters per frame).
+
+    Returns:
+        list: List of upsampled camera objects.
+    """
     new_cameras = []
     total_idx = 0
-    for idx in range(len(cameras)-1):
+    for idx in range(len(cameras) - 1):
         current_camera = cameras[idx]
-        next_camera = cameras[idx+1]
-        
-        intermediate_cameras = get_interpolated_poses(current_camera.extrinsics.cpu().numpy(), 
-                                          next_camera.extrinsics.cpu().numpy(), steps=steps_per_transition)
+        next_camera = cameras[idx + 1]
+
+        translation_change = np.linalg.norm(next_camera.extrinsics[:3, 3] - current_camera.extrinsics[:3, 3])
+        steps_per_transition = max(int(translation_change / meters_per_frame), 1)
+
+        intermediate_cameras = get_interpolated_poses(current_camera.extrinsics, next_camera.extrinsics, steps=steps_per_transition)
+
         for intermediate_camera in intermediate_cameras:
             view_new = copy.deepcopy(current_camera)
             view_new.extrinsics = intermediate_camera
             view_new.image_name = str(total_idx).zfill(8)
             new_cameras.append(view_new)
-            total_idx+=1
+            total_idx += 1
+
     return new_cameras
 
 def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=0.1):

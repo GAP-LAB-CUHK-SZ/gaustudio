@@ -31,6 +31,39 @@ def upsample_cameras(cameras, steps_per_transition=30):
             total_idx+=1
     return new_cameras
 
+def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=0.1):
+    """
+    Downsample cameras based on translation and rotation thresholds.
+
+    Args:
+        cameras (list): List of camera objects with extrinsics (translation and rotation).
+        translation_threshold (float): Maximum        rotation_threshold (float): Maximum rotation change (in radians) between keyframes.
+
+    Returns:
+        list: List of downsampled camera objects.
+    """
+    downsampled_cameras = []
+    prev_camera = None
+    for camera in cameras:
+        if prev_camera is None:
+            downsampled_cameras.append(camera)
+            prev_camera = camera
+            continue
+
+        # Calculate translation change
+        translation_change = np.linalg.norm(camera.extrinsics[:3, 3] - prev_camera.extrinsics[:3, 3])
+
+        # Calculate rotation change
+        prev_rotmat = prev_camera.extrinsics[:3, :3]
+        curr_rotmat = camera.extrinsics[:3, :3]
+        rotation_change = np.arccos((np.trace(prev_rotmat.T @ curr_rotmat) - 1) / 2)
+        # Check if translation or rotation change exceeds the threshold
+        if translation_change > translation_threshold or rotation_change > rotation_threshold:
+            downsampled_cameras.append(camera)
+            prev_camera = camera
+
+    return downsampled_cameras
+
 from scipy.signal import savgol_filter
 import numpy as np
 import numpy.linalg as la

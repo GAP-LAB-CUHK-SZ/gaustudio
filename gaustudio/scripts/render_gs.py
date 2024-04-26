@@ -67,6 +67,7 @@ def main():
         args.camera = os.path.join(model_path, "cameras.json")
     if os.path.exists(args.camera):
         cameras = get_path_from_json(args.camera)
+        cameras, invalid_cameras = validate_paths(cameras, window_size=len(cameras)//10, speed_tolerance=1)
         cameras = downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15)
         cameras = smoothen_cameras(cameras, window_length=len(cameras)//5)
         cameras = upsample_cameras_velocity(cameras, meters_per_frame=0.01, angles_per_frame=1)

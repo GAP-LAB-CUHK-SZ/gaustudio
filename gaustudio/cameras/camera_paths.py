@@ -82,6 +82,57 @@ def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15
 
     return downsampled_cameras
 
+import numpy as np
+
+def validate_paths(cameras, window_size=10, speed_tolerance=0.2):
+    """
+    Validate camera paths based on average speed within a sliding window.
+
+    Args:
+        cameras (list): List of camera objects with extrinsics (translation and rotation).
+        window_size (int): Size of the sliding window for calculating average speed.
+        speed_tolerance (float): Tolerance factor for determining the average speed threshold.
+
+    Returns:
+        tuple: (valid_cameras, invalid_cameras)
+            valid_cameras (list): List of camera objects with valid average speed.
+            invalid_cameras (list): List of camera objects with invalid average speed.
+    """
+    valid_cameras = []
+    invalid_cameras = []
+    prev_camera = None
+
+    for i, camera in enumerate(cameras):
+        if prev_camera is None:
+            valid_cameras.append(camera)
+            prev_camera = camera
+            continue
+
+        # Calculate translation change
+        translation_change = np.linalg.norm(camera.extrinsics[:3, 3] - prev_camera.extrinsics[:3, 3])
+
+        # Calculate average speed
+        avg_speed = translation_change / (i - (i - 1))  # Assuming a constant time difference of 1
+
+        # Calculate average speed threshold based on a sliding window
+        window_start = max(0, i - window_size)
+        window_end = i + 1
+        window_cameras = cameras[window_start:window_end]
+        window_speeds = [np.linalg.norm(cam.extrinsics[:3, 3] - cameras[max(0, j - 1)].extrinsics[:3, 3]) /
+                         (j - max(0, j - 1))  # Assuming a constant time difference of 1
+                         for j, cam in enumerate(window_cameras, start=window_start)]
+        avg_speed_threshold = np.mean(window_speeds) * (1 + speed_tolerance)
+
+        # Check if average speed exceeds the threshold
+        if avg_speed > avg_speed_threshold:
+            invalid_cameras.append(camera)
+        else:
+            valid_cameras.append(camera)
+
+        prev_camera = camera
+
+    return valid_cameras, invalid_cameras
+
 from scipy.signal import savgol_filter
 import numpy as np
 import numpy.linalg as la

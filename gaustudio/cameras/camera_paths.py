@@ -48,20 +48,30 @@ def upsample_cameras_velocity(cameras, meters_per_frame=0.1, angles_per_frame=1)
             total_idx += 1
 
     return new_cameras
-def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15):
+def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15, min_samples=10):
     """
     Downsample cameras based on translation and rotation thresholds.
+    Ensure a minimum number of samples are retained.
 
     Args:
         cameras (list): List of camera objects with extrinsics (translation and rotation).
-        translation_threshold (float): Maximum        
-        rotation_threshold (float): Maximum rotation change (in radians) between keyframes.
+        translation_threshold (float): Maximum translation change (in meters) between keyframes.
+        rotation_threshold (float): Maximum rotation change (in degrees) between keyframes.
+        min_samples (int): Minimum number of samples to retain after downsampling.
 
     Returns:
         list: List of downsampled camera objects.
     """
     downsampled_cameras = []
     prev_camera = None
+
+    # Convert rotation_threshold from degrees to radians
+    rotation_threshold = np.deg2rad(rotation_threshold)
+
+    # Ensure at least min_samples are retained
+    if len(cameras) <= min_samples:
+        return cameras
+
     for camera in cameras:
         if prev_camera is None:
             downsampled_cameras.append(camera)
@@ -74,24 +84,31 @@ def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15
         # Calculate rotation change
         prev_rotmat = prev_camera.extrinsics[:3, :3]
         curr_rotmat = camera.extrinsics[:3, :3]
-        rotation_change = np.rad2deg(np.arccos((np.trace(prev_rotmat.T @ curr_rotmat) - 1) / 2))
+        rotation_change = np.arccos((np.trace(prev_rotmat.T @ curr_rotmat) - 1) / 2)
+
         # Check if translation or rotation change exceeds the threshold
         if translation_change > translation_threshold or rotation_change > rotation_threshold:
             downsampled_cameras.append(camera)
             prev_camera = camera
 
+    # If the number of downsampled cameras is less than min_samples, return the original cameras
+    if len(downsampled_cameras) < min_samples:
+        return cameras
+
     return downsampled_cameras
 
 import numpy as np
 
-def validate_paths(cameras, window_size=10, speed_tolerance=0.2):
+def validate_paths(cameras, window_size_ratio=0.1, speed_tolerance=0.2, discard_outliers=True):
     """
     Validate camera paths based on average speed within a sliding window.
+    Optionally discard outlier cameras.
 
     Args:
         cameras (list): List of camera objects with extrinsics (translation and rotation).
-        window_size (int): Size of the sliding window for calculating average speed.
+        window_size_ratio (float): Ratio of the window size to the total number of cameras.
         speed_tolerance (float): Tolerance factor for determining the average speed threshold.
+        discard_outliers (bool): Whether to discard outlier cameras or keep them.
 
     Returns:
         tuple: (valid_cameras, invalid_cameras)
@@ -101,6 +118,9 @@ def validate_paths(cameras, window_size=10, speed_tolerance=0.2):
     valid_cameras = []
     invalid_cameras = []
     prev_camera = None
+
+    num_cameras = len(cameras)
+    window_size = max(3, int(num_cameras * window_size_ratio))  # Minimum window size of 3
 
     for i, camera in enumerate(cameras):
         if prev_camera is None:
@@ -125,7 +145,10 @@ def validate_paths(cameras, window_size=10, speed_tolerance=0.2):
 
         # Check if average speed exceeds the threshold
         if avg_speed > avg_speed_threshold:
-            invalid_cameras.append(camera)
+            if discard_outliers:
+                continue  # Discard the camera if it's an outlier
+            else:
+                invalid_cameras.append(camera)
         else:
             valid_cameras.append(camera)
 
@@ -144,17 +167,20 @@ def unwrap_quaternions(qvecs):
         qvecs_unwrapped[i] = (qvecs[i] if dot > 0 else -qvecs[i])
     return qvecs_unwrapped
 
-def smoothen_cameras(cameras, window_length=9, polyorder=2):
+def smoothen_cameras(cameras, window_size_ratio=0.1, polyorder=2):
+    num_cameras = len(cameras)
+    window_size = max(3, int(num_cameras * window_size_ratio))  # Minimum window size of 3
+
     new_cameras = []
     total_idx = 0
     translates = torch.stack([camera.extrinsics[:3, 3] for camera in cameras]).cpu().numpy()
     qvecs = np.stack([quaternion_from_matrix(camera.extrinsics[:3, :3].cpu().numpy()) for camera in cameras])
     qvecs = unwrap_quaternions(qvecs)
     for dim in range(translates.shape[1]):
-        translates[:, dim] = savgol_filter(translates[:, dim], window_length, polyorder)
+        translates[:, dim] = savgol_filter(translates[:, dim], window_size, polyorder)
     
     for dim in range(qvecs.shape[1]):
-        qvecs[:, dim] = savgol_filter(qvecs[:, dim], window_length, polyorder)
+        qvecs[:, dim] = savgol_filter(qvecs[:, dim], window_size, polyorder)
 
     for camera, smooth_translate, smooth_qvec in zip(cameras, translates, qvecs):
         smooth_qvec /= la.norm(smooth_qvec)  # Normalize quaternion

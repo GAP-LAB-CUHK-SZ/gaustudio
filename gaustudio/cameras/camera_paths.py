@@ -99,7 +99,7 @@ def downsample_cameras(cameras, translation_threshold=0.1, rotation_threshold=15
 
 import numpy as np
 
-def validate_paths(cameras, window_size_ratio=0.1, speed_tolerance=0.2, discard_outliers=True):
+def validate_paths(cameras, window_size_ratio=0.1, speed_tolerance=0.2, discard_outliers=False):
     """
     Validate camera paths based on average speed within a sliding window.
     Optionally discard outlier cameras.

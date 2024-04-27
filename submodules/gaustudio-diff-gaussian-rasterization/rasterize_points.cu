@@ -67,7 +67,7 @@ RasterizeGaussiansCUDA(
 
   torch::Tensor out_color = torch::full({NUM_CHANNELS, H, W}, 0.0, float_opts);
   torch::Tensor out_depth = torch::full({1, H, W}, 0.0, float_opts);
-  torch::Tensor out_median_depth = torch::full({1, H, W}, 0.0, float_opts);
+  torch::Tensor out_median_depth = torch::full({3, H, W}, 0.0, float_opts);
   torch::Tensor out_opacity = torch::full({1, H, W}, 0.0, float_opts);
   torch::Tensor radii = torch::full({P}, 0, means3D.options().dtype(torch::kInt32));
   

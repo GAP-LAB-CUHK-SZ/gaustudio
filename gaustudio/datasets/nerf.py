@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm
+from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
 from typing import List, Dict 
 from pathlib import Path
 import math
@@ -39,7 +39,8 @@ class NerfDatasetBase:
         FoVx = focal2fov(focal, width) 
         
         for _frame in meta['frames']:
-            image_path = self.image_path / f"{_frame['file_path']}.png"
+            image_name = f"{_frame['file_path']}.png"
+            image_path = self.image_path / image_name
             
             c2w = np.array(_frame['transform_matrix'])
             c2w[:,1:3] *= -1
@@ -54,6 +55,15 @@ class NerfDatasetBase:
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
     
+    def export(self, save_path):
+        json_cams = []
+        camlist = []
+        camlist.extend(self.all_cameras)
+        for id, cam in enumerate(camlist):
+            json_cams.append(camera_to_JSON(id, cam))
+        with open(save_path, 'w') as file:
+            json.dump(json_cams, file)
+            
 @datasets.register('nerf')
 class NerfDataset(Dataset, NerfDatasetBase):
     def __init__(self, config):

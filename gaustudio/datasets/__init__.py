@@ -123,7 +123,7 @@ class Camera:
     def intrinsics(self):
         return torch.tensor([[self.focal_x, 0, self.image_width / 2], 
                              [0, self.focal_y, self.image_height / 2], 
-                             [0, 0, 1]]).float()
+                             [0, 0, 1]]).float().to(self.world_view_transform.device)
      
     @property
     def focal_y(self):

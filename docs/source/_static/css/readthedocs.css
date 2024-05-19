@@ -1,0 +1,12 @@
+.header-logo {
+    background-image: url("../images/logo.png");
+    background-size: 100px 100px;
+    height: 100px;
+    width: 100px;
+    position: absolute;
+    top: -30px;
+    left: 0pt;
+}
+code {
+    word-break: normal;
+}

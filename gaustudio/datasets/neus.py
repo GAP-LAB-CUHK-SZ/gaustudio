@@ -81,7 +81,7 @@ class NeusDatasetBase:
             FoVy = focal2fov(fy, height)
             FoVx = focal2fov(fx, width)
             _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
-            _mask_tensor = torch.from_numpy(mask)
+            _mask_tensor = torch.from_numpy(mask) if mask is not None else None
             _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image=_image_tensor, image_name=image_name, image_width=width, image_height=height, mask=_mask_tensor)
             all_cameras_unsorted.append(_camera)
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

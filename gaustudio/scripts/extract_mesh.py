@@ -39,7 +39,7 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import models, datasets, renderers
-    from gaustudio.datasets.utils import JSON_to_camera
+    from gaustudio.utils.cameras_utils import JSON_to_camera
     from gaustudio.utils.graphics_utils import depth2point
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
@@ -95,8 +95,9 @@ def main():
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
         rendering = render_pkg["render"]
+        rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
         rendered_depth = render_pkg["rendered_median_depth"][0]
-        invalid_mask = render_pkg["rendered_final_opacity"][0] < 0.5
+        invalid_mask = rendered_final_opacity < 0.5
 
         rendering[:, invalid_mask] = 0.
         rendered_depth[invalid_mask] = 0

@@ -69,7 +69,7 @@ def main():
         cameras = get_path_from_json(args.camera)
         # Validate camera paths and optionally discard outliers
         window_size_ratio = 0.1
-        speed_tolerance = 1.0
+        speed_tolerance = 0.1
         discard_outliers = True
         cameras, invalid_cameras = validate_paths(cameras, window_size_ratio=window_size_ratio,
                                                 speed_tolerance=speed_tolerance,
@@ -119,7 +119,6 @@ def main():
         # Convert the rendered image to a numpy array
         rendering_np = rendering.permute(1, 2, 0).cpu().numpy() * 255
         rendering_np = rendering_np.astype(np.uint8)
-
         # Append the rendered image to the list
         rendered_images.append(rendering_np)
 

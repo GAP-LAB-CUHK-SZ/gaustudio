@@ -89,11 +89,9 @@ class Camera:
         self._setup()
 
     def _setup(self):
-        if self.world_view_transform is None:
-            self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
-        if self.full_proj_transform is None:
-            projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1)
-            self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
+        self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
+        projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1)
+        self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
         
         if self.image_path is not None:
             self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
@@ -132,22 +130,11 @@ class Camera:
                              [0, 0, 1]]).float()
      
     @extrinsics.setter
-    def extrinsics(self, value):
+    def extrinsics(self, extrinsics):
         """Sets the extrinsic parameters of the camera"""
-
-        # The rotation matrix R is the top left 3x3 block of the extrinsics
-        R = extrinsics[:3, :3]
-        
-        # The translation vector T is the top right 3x1 block of the extrinsics
-        T = extrinsics[:3, 3]
-
-        self.R = R
-        self.T = T
-
-        # Update the world view transform and full projection transform after setting new extrinsics
-        self.world_view_transform = torch.tensor(getWorld2View2(R, T, self.trans, self.scale)).transpose(0, 1).to(self.data_device)
-        self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
-        self.camera_center = self.world_view_transform.inverse()[3, :3]
+        self.R = np.transpose(extrinsics[:3, :3])
+        self.T = extrinsics[:3, 3]
+        self._setup()
 
     def downsample(self, resolution):
         if self.image is not None:

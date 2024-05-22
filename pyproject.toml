@@ -18,3 +18,4 @@ exclude = ["tests*"]
 gs-process-data = "gaustudio.scripts.process_data:main"
 gs-extract-mesh = "gaustudio.scripts.extract_mesh:main"
 gs-render-mesh = "gaustudio.scripts.render_mesh:main"
+gs-render = "gaustudio.scripts.render_gs:main"

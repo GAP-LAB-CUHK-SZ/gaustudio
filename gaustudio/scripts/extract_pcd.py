@@ -80,36 +80,51 @@ def main():
     else:
         assert "Camera data not found at {}".format(args.camera)
     
+    from gaustudio.utils.sh_utils import SH2RGB
     from gaustudio.datasets.utils import getNerfppNorm
+    from gaustudio.utils.graphics_utils import depth_to_normal
     scene_radius = getNerfppNorm(cameras)["radius"]
-    all_median_point_ids = torch.tensor([], dtype=torch.int64).to("cuda")
+    all_points = []
+    all_colors = []
+    all_normals = []
     for camera in tqdm(cameras[::3]):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
-        rendering = render_pkg["render"]
         rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
+        rendered_depth = render_pkg["rendered_depth"]
+        depth_gradients = depth_to_normal(camera, rendered_depth)
+
         median_point_depths =  render_pkg["rendered_median_depth"][0]
         median_point_ids =  render_pkg["rendered_median_depth"][2].int()
         median_point_weights =  render_pkg["rendered_median_depth"][1]
         valid_mask = (rendered_final_opacity > 0.5) & (median_point_weights > 0.1)
-        valid_mask = (median_point_depths < scene_radius) & valid_mask
-        median_point_ids = median_point_ids[valid_mask].unique()
-        all_median_point_ids = torch.cat((all_median_point_ids, median_point_ids.unique()))
-
-    unique_median_point_ids = all_median_point_ids.unique()
+        valid_mask = (median_point_depths < scene_radius * 1.5) & valid_mask
+        valid_mask = (depth_gradients.sum(dim=-1) > 0) & valid_mask
+        
+        median_point_ids = median_point_ids[valid_mask]
+        median_point_points = pcd._xyz[median_point_ids]
+        median_point_colors = SH2RGB(pcd._f_dc[median_point_ids])
+        median_point_normals = depth_gradients[valid_mask]
+        
+        all_points.append(median_point_points)
+        all_colors.append(median_point_colors)
+        all_normals.append(median_point_normals)
+    all_points = torch.cat(all_points, dim=0)
+    all_colors = torch.cat(all_colors, dim=0)
+    all_normals = torch.cat(all_normals, dim=0)
     
-    from gaustudio.utils.sh_utils import SH2RGB
-    surface_xyz = pcd._xyz[unique_median_point_ids]
-    surface_color = SH2RGB(pcd._f_dc[unique_median_point_ids])
     import open3d as o3d
-    surface_xyz_np = surface_xyz.cpu().numpy()
-    surface_color_np = surface_color.cpu().numpy() * 255
+    surface_xyz_np = all_points.cpu().numpy()
+    surface_color_np = all_colors.cpu().numpy() * 255
+    surface_normal_np = all_normals.cpu().numpy()
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(surface_xyz_np)
     pcd.colors = o3d.utility.Vector3dVector(surface_color_np / 255.0)
-    o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd)
-
+    pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
+    
+    o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd,)
+    o3d.visualization.draw_geometries([pcd])
 if __name__ == '__main__':
     main()

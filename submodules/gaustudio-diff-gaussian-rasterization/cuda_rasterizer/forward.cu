@@ -309,6 +309,7 @@ renderCUDA(
 	float D = { 0 };
 	float median_D = 15.0f;
 	float median_weight = 0;
+	float median_id = 0;
 
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
@@ -369,6 +370,7 @@ renderCUDA(
 			    float dep = collected_depth[j];
 				median_D = dep;
 				median_weight = alpha * T;
+				median_id = collected_id[j];
 			}
 			T = test_T;
 
@@ -389,6 +391,7 @@ renderCUDA(
 		out_depth[pix_id] = D;
 		out_median_depth[pix_id] = median_D;
 		out_median_depth[H * W + pix_id] = median_weight;
+		out_median_depth[2*H*W + pix_id] = median_id;
 		out_opacity[pix_id] = 1-T;
 	}
 }

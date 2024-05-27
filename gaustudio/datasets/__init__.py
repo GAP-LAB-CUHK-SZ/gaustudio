@@ -180,4 +180,6 @@ def make(config):
     return dataset
 
 
-from . import colmap, waymo, polycam, scannet, mvsnet, nerf, nsvf, deepvoxels, nero, mobilebrick, neus
+from . import colmap, waymo, polycam, scannet, mvsnet, nerf, \
+                nsvf, deepvoxels, nero, mobilebrick, neus, \
+                nerfstudio

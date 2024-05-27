@@ -23,6 +23,8 @@ def main():
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
     parser.add_argument('--camera', '-c', default=None, help='path to cameras.json')
     parser.add_argument('--model', '-m', default=None, help='path to the model')
+    parser.add_argument('--source_path', '-s', required=True, help='path to the dataset')
+    parser.add_argument('--flythrough', action='store_true', help='render a flythrough path')
     parser.add_argument('--output-dir', '-o', default=None, help='path to the output dir')
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')
     parser.add_argument('--resolution', default=2, type=int, help='downscale resolution')
@@ -65,8 +67,23 @@ def main():
     
     if args.camera is None:
         args.camera = os.path.join(model_path, "cameras.json")
-    if os.path.exists(args.camera):
-        cameras = get_path_from_json(args.camera)
+    if args.camera is not None and os.path.exists(args.camera):
+        print("Loading camera data from {}".format(args.camera))
+        with open(args.camera, 'r') as f:
+            camera_data = json.load(f)
+        cameras = []
+        for camera_json in camera_data:
+            camera = JSON_to_camera(camera_json, "cuda")
+            cameras.append(camera)
+    elif args.source_path is not None:
+        dataset_config = { "name":"colmap", "source_path": args.source_path, 
+                          "images":"images", "resolution":-1, "data_device":"cuda", "eval": False}
+        dataset = datasets.make(dataset_config)
+        cameras = dataset.all_cameras
+    else:
+        exit("Camera data not found at {}".format(args.camera))
+    
+    if args.flythrough:
         # Validate camera paths and optionally discard outliers
         window_size_ratio = 0.1
         speed_tolerance = 0.1
@@ -105,6 +122,7 @@ def main():
     os.makedirs(mask_path, exist_ok=True)
     rendered_images = []
     for camera in tqdm(cameras):
+        camera.image = None
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():

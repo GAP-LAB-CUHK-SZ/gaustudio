@@ -1,0 +1,13 @@
+name: pcd
+tag: ""
+seed: 42
+
+model:
+  name: general_pcd
+  pointcloud:
+    name: general_pcd
+
+renderer:
+  name: pcd_renderer
+  kernel_size: 0.001
+  white_background: True

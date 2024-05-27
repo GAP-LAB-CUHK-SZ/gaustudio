@@ -39,7 +39,7 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import models, datasets, renderers
-    from gaustudio.datasets.utils import JSON_to_camera
+    from gaustudio.utils.cameras_utils import JSON_to_camera
     from gaustudio.utils.graphics_utils import depth2point
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
@@ -95,8 +95,9 @@ def main():
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
         rendering = render_pkg["render"]
+        rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
         rendered_depth = render_pkg["rendered_median_depth"][0]
-        invalid_mask = render_pkg["rendered_final_opacity"][0] < 0.5
+        invalid_mask = rendered_final_opacity < 0.5
 
         rendering[:, invalid_mask] = 0.
         rendered_depth[invalid_mask] = 0
@@ -144,14 +145,42 @@ def main():
     
     # Clean Mesh
     if args.clean:
-        import pymeshlab
-        ms = pymeshlab.MeshSet()
-        ms.load_new_mesh(os.path.join(work_dir, 'fused_mesh.ply'))
-        ms.meshing_remove_unreferenced_vertices()
-        ms.meshing_remove_duplicate_faces()
-        ms.meshing_remove_null_faces()
-        ms.meshing_remove_connected_component_by_face_number(mincomponentsize=20000)
-        ms.save_current_mesh(os.path.join(work_dir, 'fused_mesh.ply'))
+        import open3d as o3d
+        ratio_threshold = 0.5
+        mesh_path = os.path.join(work_dir, 'fused_mesh.ply')
+        print(f"Loading mesh from {mesh_path}")
+        mesh = o3d.io.read_triangle_mesh(mesh_path)
+        
+        print("Analyzing connected components...")
+        (triangle_clusters, 
+        cluster_n_triangles,
+        cluster_area) = mesh.cluster_connected_triangles()
+        
+        print("Finding largest component...") 
+        triangle_clusters = np.array(triangle_clusters)  
+        cluster_n_triangles = np.array(cluster_n_triangles)
+        
+        largest_cluster_idx = cluster_n_triangles.argmax()
+        largest_cluster_n_triangles = cluster_n_triangles[largest_cluster_idx]
+
+        print(f"Largest component has {largest_cluster_n_triangles} triangles")
+        
+        triangles_keep_mask = np.zeros_like(triangle_clusters, dtype=np.int32)
+        saved_clusters = []
+        
+        print("Removing small components...")
+        for i, n_tri in enumerate(cluster_n_triangles):
+            if n_tri > ratio_threshold * largest_cluster_n_triangles:
+                saved_clusters.append(i)
+                triangles_keep_mask += triangle_clusters == i
+                
+        triangles_to_remove = triangles_keep_mask == 0
+        mesh.remove_triangles_by_mask(triangles_to_remove)
+        mesh.remove_unreferenced_vertices()
+        
+        print(f"Removed {triangles_to_remove.sum()} triangles")
+        print(f"Saving processed mesh to {mesh_path}") 
+        o3d.io.write_triangle_mesh(mesh_path, mesh)
 
 if __name__ == '__main__':
     main()

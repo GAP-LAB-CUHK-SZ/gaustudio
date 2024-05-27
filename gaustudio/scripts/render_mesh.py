@@ -76,7 +76,7 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import datasets
-    from gaustudio.datasets.utils import JSON_to_camera
+    from gaustudio.utils.cameras_utils import JSON_to_camera
 
     if args.camera is not None and os.path.exists(args.camera):
         print("Loading camera data from {}".format(args.camera))

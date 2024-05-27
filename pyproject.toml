@@ -7,7 +7,7 @@ A collaboration friendly studio for Gaussians Splatting
 '''
 
 [build-system]
-requires = [ "setuptools", "wheel", "torch", "tqdm", "vdb", "trimesh", "pymeshlab", "numpy", "rembg"]
+requires = [ "setuptools", "wheel", "torch", "tqdm", "vdb", "trimesh",  "numpy", "rembg"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -19,3 +19,4 @@ gs-process-data = "gaustudio.scripts.process_data:main"
 gs-extract-mesh = "gaustudio.scripts.extract_mesh:main"
 gs-extract-pcd = "gaustudio.scripts.extract_pcd:main"
 gs-render-mesh = "gaustudio.scripts.render_mesh:main"
+gs-render = "gaustudio.scripts.render_gs:main"

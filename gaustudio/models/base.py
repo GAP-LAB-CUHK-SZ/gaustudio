@@ -58,7 +58,12 @@ class BasePointCloud(nn.Module):
             elif elem == 'opacity':
                 opacity = plydata.elements[0]['opacity'][..., np.newaxis]
                 self._opacity = torch.from_numpy(opacity).float().to(self.device)
-                
+                  
+            elif elem == 'rgb':
+                rgb = np.stack((plydata.elements[0]['red'],
+                                plydata.elements[0]['green'],
+                                plydata.elements[0]['blue']), axis=1)
+                self._rgb = torch.from_numpy(rgb).float().to(self.device)
             else:
                 names = [n.name for n in plydata.elements[0].properties if n.name.startswith(elem)]
                 names = sorted(names, key=lambda n: int(n.split('_')[-1]))
@@ -73,3 +78,6 @@ class BasePointCloud(nn.Module):
                 setattr(self, '_'+elem, torch.from_numpy(data).float().to(self.device))
 
         print(f"Loaded {self.num_points} points from {ply_path}")
+    
+    def get_attribute(self, attribute):
+        return getattr(self, '_'+attribute)

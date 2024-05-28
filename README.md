@@ -13,7 +13,7 @@
 
 Here's an improved version of the text with better structure and flow:
 
-# Datasets
+# Dataset
 To comprehensively evaluate the robustness of 3DGS methods under diverse lighting conditions, materials, and geometric structures, we have curated the following datasets:
 ## 1. Collection of 5 Synthetic Datasets in COLMAP Format
 We have integrated 5 synthetic datasets: *nerf_synthetic, refnerf_synthetic, nero_synthetic, nsvf_synthetic, and BlendedMVS*, totaling 143 complex real-world scenes. To ensure compatibility, we have utilized COLMAP to perform feature matching and triangulation based on the original poses, uniformly converting all data to the COLMAP format.

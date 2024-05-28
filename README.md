@@ -11,6 +11,19 @@
 ### [Paper](https://drive.google.com/file/d/1mizzZSXn-YToww7kW3OV0lUbfME9Mobg/view?usp=sharing) | [Document(Comming Soon)]()
 <br/>
 
+Here's an improved version of the text with better structure and flow:
+
+# Datasets
+To comprehensively evaluate the robustness of 3DGS methods under diverse lighting conditions, materials, and geometric structures, we have curated the following datasets:
+## 1. Collection of 5 Synthetic Datasets in COLMAP Format
+We have integrated 5 synthetic datasets: *nerf_synthetic, refnerf_synthetic, nero_synthetic, nsvf_synthetic, and BlendedMVS*, totaling 143 complex real-world scenes. To ensure compatibility, we have utilized COLMAP to perform feature matching and triangulation based on the original poses, uniformly converting all data to the COLMAP format.
+
+## 2. Real-world Scenes with High-quality Normal Annotations and LoFTR Initialization
+* **COLMAP-format [MuSHRoom](https://github.com/TUTvision/MuSHRoom/tree/main)**: To address the difficulty of acquiring indoor scene data such as ScanNet++, we have processed and generated COLMAP-compatible data based on the publicly available MuSHRoom dataset. Please remember to use this data under the original license.
+
+* **More Complete Tanks and Temples**: To address the lack of ground truth poses in the Tanks and Temples test set, we have converted the pose information provided by MVSNet to generate COLMAP-format data. This supports algorithm evaluation on a wider range of indoor and outdoor scenes. The leaderboard submission script will be released in a subsequent version.
+* **Normal Annotations and LoFTR Initialization** To tackle modeling challenges such as sparse viewpoints and specular highlight regions, we have annotated high-quality, temporally consistent normal data based on our private model, providing new avenues for indoor and unbounded scene 3DGS reconstruction. The annotation code will be released soon. Additionally, we provide LoFTR-based initial point clouds to support better initialization.
+
 # Installation
 Before installing the software, please note that the following steps have been tested on Ubuntu 20.04. If you encounter any issues during the installation on Windows, we are open to addressing and resolving such issues.
 

@@ -37,9 +37,8 @@ def main():
     n_gpus = len(args.gpu.split(','))
     
     from gaustudio.utils.misc import load_config
-    from gaustudio import models, datasets, renderers
-    from gaustudio.datasets.utils import JSON_to_camera
-    from gaustudio.utils.graphics_utils import depth2point
+    from gaustudio import models, renderers
+    from gaustudio.utils.cameras_utils import JSON_to_camera
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -84,8 +83,7 @@ def main():
     from gaustudio.datasets.utils import getNerfppNorm
     from gaustudio.utils.graphics_utils import depth_to_normal
     scene_radius = getNerfppNorm(cameras)["radius"]
-    all_points = []
-    all_colors = []
+    all_ids = []
     all_normals = []
     for camera in tqdm(cameras[::3]):
         camera.downsample_scale(args.resolution)
@@ -102,29 +100,34 @@ def main():
         valid_mask = (rendered_final_opacity > 0.5) & (median_point_weights > 0.1)
         valid_mask = (median_point_depths < scene_radius * 1.5) & valid_mask
         valid_mask = (depth_gradients.sum(dim=-1) > 0) & valid_mask
-        
+
         median_point_ids = median_point_ids[valid_mask]
-        median_point_points = pcd._xyz[median_point_ids]
-        median_point_colors = SH2RGB(pcd._f_dc[median_point_ids])
-        median_point_normals = depth_gradients[valid_mask]
+        median_point_normals = -depth_gradients[valid_mask]
         
-        all_points.append(median_point_points)
-        all_colors.append(median_point_colors)
+        all_ids.append(median_point_ids)
         all_normals.append(median_point_normals)
-    all_points = torch.cat(all_points, dim=0)
-    all_colors = torch.cat(all_colors, dim=0)
+    all_ids = torch.cat(all_ids, dim=0)
     all_normals = torch.cat(all_normals, dim=0)
     
+    # fusion
+    unique_ids, inverse_indices = torch.unique(all_ids, return_inverse=True)
+    num_unique_ids = len(unique_ids)
+    sum_normals = torch.zeros((num_unique_ids, all_normals.size(1)), device=all_normals.device)
+    counts = torch.zeros(num_unique_ids, device=all_ids.device)
+    sum_normals.index_add_(0, inverse_indices, all_normals)
+    counts.index_add_(0, inverse_indices, torch.ones_like(inverse_indices, dtype=torch.float))
+    mean_normals = sum_normals / counts.unsqueeze(1)
+
     import open3d as o3d
-    surface_xyz_np = all_points.cpu().numpy()
-    surface_color_np = all_colors.cpu().numpy() * 255
-    surface_normal_np = all_normals.cpu().numpy()
+    surface_xyz_np = pcd._xyz[unique_ids].cpu().numpy()
+    surface_color_np = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1).cpu().numpy()
+    surface_normal_np = mean_normals.cpu().numpy()
+
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(surface_xyz_np)
-    pcd.colors = o3d.utility.Vector3dVector(surface_color_np / 255.0)
+    pcd.colors = o3d.utility.Vector3dVector(surface_color_np)
     pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
+    o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd)
     
-    o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd,)
-    o3d.visualization.draw_geometries([pcd])
 if __name__ == '__main__':
     main()

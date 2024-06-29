@@ -21,6 +21,7 @@ class ColmapDatasetBase:
     def __init__(self, config: Dict):
         self._validate_config(config)
         self.path = Path(config['source_path'])
+        self.white_background = config.get('white_background', False)
         self.images_dir = self.path / config.get('images', 'images')
         self.masks_dir = self.path / config.get('masks', 'masks')
         self.w_mask = config.get('w_mask', False)
@@ -38,14 +39,17 @@ class ColmapDatasetBase:
         self.all_cameras = [c.downsample_scale(resolution_scale) for c in self.all_cameras]
 
     def _initialize(self):
+        scene_dir = os.path.join(self.path, "sparse", "0")
+        if not os.path.exists(scene_dir):
+            scene_dir = os.path.join(self.path, "sparse")
         try:
-            cameras_extrinsic_file = os.path.join(self.path, "sparse/0", "images.bin")
-            cameras_intrinsic_file = os.path.join(self.path, "sparse/0", "cameras.bin")
+            cameras_extrinsic_file = os.path.join(scene_dir, "images.bin")
+            cameras_intrinsic_file = os.path.join(scene_dir, "cameras.bin")
             cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
         except:
-            cameras_extrinsic_file = os.path.join(self.path, "sparse/0", "images.txt")
-            cameras_intrinsic_file = os.path.join(self.path, "sparse/0", "cameras.txt")
+            cameras_extrinsic_file = os.path.join(scene_dir, "images.txt")
+            cameras_intrinsic_file = os.path.join(scene_dir, "cameras.txt")
             cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
@@ -75,6 +79,8 @@ class ColmapDatasetBase:
             image_path = self.images_dir / os.path.basename(extr.name)
             if not image_path.exists():
                 continue
+            _image = cv2.imread(str(image_path))
+            height, width, _ = _image.shape
             
             mask_path_png = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.png')
             mask_path_jpg = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.jpg')
@@ -85,24 +91,25 @@ class ColmapDatasetBase:
             else:
                 mask_path = None
                 
-            if self.w_mask and mask_path is not None:
-                _image = cv2.imread(str(image_path))
-                height, width, _ = _image.shape
+            if mask_path is not None:
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                 _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY) # Ensure mask is binary so multiply operation works as expected
                 mask = cv2.resize(mask, (width, height)) # Resize the mask to match the size of the image
-                background_mask = cv2.bitwise_not(mask) # Invert the mask to get the background
-                black_background = np.full(_image.shape, 0, dtype=np.uint8) # Make the background black
-                 # Combine the white background and the mask
-                background = cv2.bitwise_and(black_background, black_background, mask=background_mask)
-                masked_image = cv2.bitwise_and(_image, _image, mask=mask)
-                _image = cv2.addWeighted(masked_image, 1, background, 1, 0)
+                bg_mask = cv2.bitwise_not(mask) # Invert the mask to get the background
+                bg_image = cv2.bitwise_and(_image, _image, mask=bg_mask)
                 _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
+                bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
                 _mask_tensor = torch.from_numpy(mask)
                 _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), 
-                                          image_width=width, image_height=height, image=_image_tensor, mask=_mask_tensor)
+                                          image_width=width, image_height=height, image=_image_tensor, 
+                                          bg_image=bg_image_tensor, mask=_mask_tensor)
             else:
-                _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, image_width=width, image_height=height)
+                if self.white_background:
+                    bg_image_tensor = torch.ones((height, width, 3))
+                else:
+                    bg_image_tensor = torch.zeros((height, width, 3))
+                _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
+                                          image_width=width, image_height=height, bg_image=bg_image_tensor)
             all_cameras_unsorted.append(_camera)
 
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

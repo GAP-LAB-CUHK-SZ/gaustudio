@@ -81,6 +81,7 @@ class Camera:
     image_path: str = None
     image_name: str = None
     image: np.array = None
+    bg_image: np.array = None
     mask: np.array = None
     normal: np.array = None
     depth: np.array = None

@@ -2,7 +2,6 @@ from gaustudio import renderers
 import torch
 import math
 from gaustudio.utils.sh_utils import eval_sh
-from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 
 @renderers.register('surfel_renderer')
 class SurfelRenderer:
@@ -64,6 +63,7 @@ class SurfelRenderer:
         tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
         tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
+        from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
         raster_settings = GaussianRasterizationSettings(
             image_height=int(viewpoint_camera.image_height),
             image_width=int(viewpoint_camera.image_width),

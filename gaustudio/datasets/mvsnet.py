@@ -7,7 +7,7 @@ from gaustudio import datasets
 from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
 from typing import List, Dict 
 from pathlib import Path
-
+from tqdm import tqdm
 
 def load_cam(file: str, max_d=256, interval_scale=1):
     """ read camera txt file """
@@ -70,7 +70,7 @@ class MvsnetDatasetBase:
     def _initialize(self):
         all_cameras_unsorted = []
         
-        for image_path in self.image_filenames:
+        for image_path in tqdm(self.image_filenames, total=len(self.image_filenames), desc="Reading cameras"):        
             image = cv2.imread(str(image_path))
             height, width, _ = image.shape
             

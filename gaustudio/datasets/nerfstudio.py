@@ -26,7 +26,7 @@ class NerfStudioDatasetBase:
     def _initialize(self):
         all_cameras_unsorted = []
         
-        with open(self.source_path / f"transformations.json", 'r') as f:
+        with open(self.source_path / f"transforms.json", 'r') as f:
             meta = json.load(f)
     
         

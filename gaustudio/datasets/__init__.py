@@ -6,14 +6,24 @@ import math
 import os
 import torch
 
+def resizeTorch(tensor_image, resolution):
+    if tensor_image.ndim != 3 or tensor_image.shape[2] != 3:
+        raise ValueError("Input tensor must have shape [H, W, 3]")
 
-def PILtoTorch(pil_image, resolution):
-    resized_image_PIL = pil_image.resize(resolution)
-    resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
-    if len(resized_image.shape) == 3:
-        return resized_image.permute(2, 0, 1)
-    else:
-        return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+    # Normalize to PIL range [0, 255] and convert to uint8 type if necessary
+    if tensor_image.max() <= 1.0:
+        tensor_image = tensor_image * 255.0
+    tensor_image = tensor_image.byte()
+
+    # Convert tensor to PIL image for resizing
+    pil_image = Image.fromarray(tensor_image.cpu().numpy())
+
+    # Resize using the target resolution
+    resized_pil_image = pil_image.resize(resolution)
+
+    # Convert back to tensor and normalize to [0, 1]
+    resized_tensor_image = torch.from_numpy(np.array(resized_pil_image)).float() / 255.0
+    return resized_tensor_image
 
 def getWorld2View(R, t):
     Rt = np.zeros((4, 4))
@@ -139,11 +149,11 @@ class Camera:
 
     def downsample(self, resolution):
         if self.image is not None:
-            resized_image_rgb = PILtoTorch(self.image, resolution)
+            resized_image_rgb = resizeTorch(self.image, resolution)
             
-            gt_image = resized_image_rgb[:3, ...]
+            gt_image = resized_image_rgb[..., :3]
             self.image = gt_image.clamp(0.0, 1.0)
-            self.image_height, self.image_width = gt_image.shape[1:3]
+            self.image_height, self.image_width, _ = gt_image.shape
             
             # TODO: Add mask, normal, depth resize
         else:
@@ -152,11 +162,11 @@ class Camera:
     def downsample_scale(self, scale):
         resolution = round(self.image_width/scale), round(self.image_height/scale)
         if self.image is not None:
-            resized_image_rgb = PILtoTorch(self.image, resolution)
+            resized_image_rgb = resizeTorch(self.image, resolution)
             
-            gt_image = resized_image_rgb[:3, ...]
+            gt_image = resized_image_rgb[..., :3]
             self.image = gt_image.clamp(0.0, 1.0)
-            self.image_height, self.image_width = gt_image.shape[1:3]
+            self.image_height, self.image_width, _ = gt_image.shape
         else:
             self.image_width, self.image_height = resolution
 

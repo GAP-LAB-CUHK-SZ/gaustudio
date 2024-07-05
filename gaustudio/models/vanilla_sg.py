@@ -63,12 +63,6 @@ class VanillaPointCloud(BasePointCloud):
         features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
         return torch.cat((features_dc, features_rest), dim=1)
     
-    @property
-    def get_center(self):
-        min_xyz, _ = torch.min(self._xyz, dim=0)
-        max_xyz, _ = torch.max(self._xyz, dim=0)
-        return (min_xyz + max_xyz) / 2
-
     def export(self, path):
         xyz = self._xyz
         normals = np.zeros_like(xyz)

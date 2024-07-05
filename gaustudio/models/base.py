@@ -28,6 +28,23 @@ class BasePointCloud(nn.Module):
             else:
                 setattr(self, '_'+elem, getattr(self, '_'+elem).to(device))
 
+    
+    @property
+    def get_center_and_size(self):
+        import numpy as np
+        _xyz = self._xyz.cpu().numpy()
+        lower_bound = np.percentile(_xyz, 5, axis=0)
+        upper_bound = np.percentile(_xyz, 95, axis=0)
+        center = (lower_bound + upper_bound) / 2
+        size = upper_bound - lower_bound
+        return center, size
+    
+    @property
+    def get_center(self):
+        min_xyz, _ = torch.min(self._xyz, dim=0)
+        max_xyz, _ = torch.max(self._xyz, dim=0)
+        return (min_xyz + max_xyz) / 2
+    
     def setup(self, device,  num_points = 0):
         self.device = device
         self.num_points = num_points
@@ -63,7 +80,7 @@ class BasePointCloud(nn.Module):
                 rgb = np.stack((plydata.elements[0]['red'],
                                 plydata.elements[0]['green'],
                                 plydata.elements[0]['blue']), axis=1)
-                self._rgb = torch.from_numpy(rgb).float().to(self.device)
+                self._rgb = torch.from_numpy(rgb).float().to(self.device) / 255
             else:
                 names = [n.name for n in plydata.elements[0].properties if n.name.startswith(elem)]
                 names = sorted(names, key=lambda n: int(n.split('_')[-1]))

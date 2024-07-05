@@ -1,0 +1,25 @@
+# name: gsplat-${basename:${dataset.root_dir}}
+name: gsplat
+tag: ""
+seed: 42
+
+dataset:
+  name: colmap
+  source_path: ???
+  model_path: ???
+  images: "images"
+  resolution: -1
+  data_device: "cuda"
+  eval: False
+
+model:
+  name: vanilla_sg
+  pointcloud:
+    name: vanilla_pcd
+    sh_degree: 3
+    resume_path: Null
+
+renderer:
+  name: gsplat_renderer
+  white_background: False
+  debug: False

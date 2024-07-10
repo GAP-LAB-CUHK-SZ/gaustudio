@@ -15,19 +15,19 @@ class ColmapInitializer(BaseInitializer):
         os.makedirs(self.images_dir, exist_ok=True)
         self.pose_dict = {}
     
-    def __call__(self, pcd, dataset, overwrite=False):
+    def __call__(self, model, dataset, overwrite=False):
         # Load ply file if available
         if dataset.ply_path is not None and os.path.exists(dataset.ply_path) and not overwrite: 
-            pcd.load(dataset.ply_path)
-            return pcd
+            model.load(dataset.ply_path)
+            return model
 
         # Skip processing if sparse results exists
         if not os.path.exists(f'{self.ws_dir}/sparse') or overwrite:
-            self.preprocess(dataset)
-            self.process()
+            self.cache_dataset(dataset)
+            self.process_dataset()
 
-        pcd = self.postprocess(pcd)
-        return pcd
+        model = self.build_model(model)
+        return model
 
     def cache_dataset(self, dataset):
         print("Caching images and preparing dataset...")

@@ -1,8 +1,20 @@
 from gaustudio.models.base import BasePointCloud
 from gaustudio.models.utils import get_activation, build_covariance_from_scaling_rotation
 from gaustudio import models
-
+from gaustudio.utils.sh_utils import RGB2SH
+import numpy as np
+from plyfile import PlyElement, PlyData
 import torch
+
+def calculate_dist2_python(xyz):
+    from scipy.spatial import KDTree
+    points_np = xyz.cpu().float().numpy()
+    dists, _ = KDTree(points_np).query(points_np, k=4)
+    mean_dists = (dists[:, 1:] ** 2).mean(axis=1)
+    return torch.tensor(mean_dists, dtype=xyz.dtype, device=xyz.device)
+
+def inverse_sigmoid(x):
+    return torch.log(x / (1 - x))
 
 @models.register('vanilla_pcd')
 class VanillaPointCloud(BasePointCloud):
@@ -63,6 +75,38 @@ class VanillaPointCloud(BasePointCloud):
         features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
         return torch.cat((features_dc, features_rest), dim=1)
     
+    def create_from_attribute(self, xyz, rgb, scale=None, rot=None, **args):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        self._xyz = torch.tensor(xyz, dtype=torch.float32).to(device)
+
+        fused_color = RGB2SH(torch.tensor(rgb, dtype=torch.float32).to(device))
+        self._f_dc = fused_color.unsqueeze(-1).transpose(1, 2).contiguous()
+        f_rest_shape = (fused_color.shape[0], (self.max_sh_degree + 1) ** 2 - 1, 3)
+        self._f_rest = torch.zeros(f_rest_shape, dtype=torch.float32).to(device)
+
+        if scale is None:
+            dist2 = self.calculate_dist2()
+            self._scale = torch.log(torch.sqrt(dist2 + 1e-7))[..., None].repeat(1, 3)
+        else:
+            self._scale = scale
+
+        if rot is None:
+            self._rot = torch.zeros((self._xyz.shape[0], 4), dtype=torch.float32).to(device)
+            self._rot[:, 0] = 1
+        else:
+            self._rot = rot
+
+        self._opacity = self.inverse_sigmoid(0.1 * torch.ones((self._xyz.shape[0], 1), dtype=torch.float32).to(device))
+
+    def calculate_dist2(self):
+        try:
+            from simple_knn._C import distCUDA2
+            dist2 = distCUDA2
+        except ImportError:
+            dist2 = self.calculate_dist2_python
+        return dist2
+
     def export(self, path):
         xyz = self._xyz
         normals = np.zeros_like(xyz)

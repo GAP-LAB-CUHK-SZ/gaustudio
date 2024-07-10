@@ -61,6 +61,12 @@ class BasePointCloud(nn.Module):
                 setattr(self, '_'+elem, args[elem])
         self.num_points = self._xyz.shape[0]
         
+    def create_from_attribute(self, **args):
+        for elem in args:
+            setattr(self, '_'+elem, args[elem])
+            self.num_points = args[elem].shape[0]
+        self.config["attributes"] = args.keys()
+    
     def load(self, ply_path: str):
         plydata = PlyData.read(ply_path)  
         self.num_points = plydata['vertex'].count

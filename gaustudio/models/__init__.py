@@ -23,4 +23,4 @@ def make(config):
     model = models[name](config)
     return model
 
-from . import vanilla_sg, mip_sg, scaffold_sg, general_pcd
+from . import vanilla_sg, mip_sg, scaffold_sg, general_pcd, latent_sg

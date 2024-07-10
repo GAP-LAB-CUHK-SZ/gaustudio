@@ -23,7 +23,7 @@ def main():
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
     parser.add_argument('--camera', '-c', default=None, help='path to cameras.json')
     parser.add_argument('--model', '-m', default=None, help='path to the model')
-    parser.add_argument('--source_path', '-s', required=True, help='path to the dataset')
+    parser.add_argument('--source_path', '-s', required=False, help='path to the dataset')
     parser.add_argument('--flythrough', action='store_true', help='render a flythrough path')
     parser.add_argument('--output-dir', '-o', default=None, help='path to the output dir')
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')

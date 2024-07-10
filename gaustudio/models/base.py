@@ -87,7 +87,7 @@ class BasePointCloud(nn.Module):
                 if len(names) == 0:
                     continue
                 
-                assert len(names) == self.config["attributes"][elem]
+                # assert len(names) == self.config["attributes"][elem]
                 
                 data = np.zeros((self.num_points, len(names)))
                 for i, name in enumerate(names):

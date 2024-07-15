@@ -6,9 +6,8 @@ from torch.utils.data import Dataset, DataLoader
 
 import os
 import cv2
-import sys
 import json
-
+import warnings
 import numpy as np
 from PIL import Image
 from typing import List, Dict 
@@ -68,11 +67,21 @@ class ColmapDatasetBase:
                 focal_length_x = intr.params[0]
                 FoVy = focal2fov(focal_length_x, height)
                 FoVx = focal2fov(focal_length_x, width)
-            elif intr.model=="PINHOLE":
+                cx = intr.params[1]
+                cy = intr.params[2]
+            elif intr.model=="PINHOLE" or intr.model=="OPENCV":
+                if intr.model == "OPENCV":
+                    warnings.warn(
+                        "OpenCV camera model detected. Distortion parameters will be discarded, which may degrade image quality. "
+                        "It is recommended to run undistortion on your images before proceeding.",
+                        UserWarning
+                    )
                 focal_length_x = intr.params[0]
                 focal_length_y = intr.params[1]
                 FoVy = focal2fov(focal_length_y, height)
                 FoVx = focal2fov(focal_length_x, width)
+                cx = intr.params[2]
+                cy = intr.params[3]
             else:
                 assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
@@ -109,7 +118,8 @@ class ColmapDatasetBase:
                 else:
                     bg_image_tensor = torch.zeros((height, width, 3))
                 _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
-                                          image_width=width, image_height=height, bg_image=bg_image_tensor)
+                                          image_width=width, image_height=height, bg_image=bg_image_tensor,
+                                          principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
 
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

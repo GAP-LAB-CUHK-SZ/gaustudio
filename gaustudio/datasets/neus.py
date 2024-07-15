@@ -73,7 +73,6 @@ class NeusDatasetBase:
             P = (world_mat @ scale_mat)[:3,:4]
             K, c2w = load_K_Rt_from_P(P)
             fx, fy, cx, cy = K[0,0], K[1,1], K[0,2], K[1,2]
-
             extrinsics = np.linalg.inv(c2w)
             R = np.transpose(extrinsics[:3, :3])
             T = extrinsics[:3, 3]
@@ -82,7 +81,9 @@ class NeusDatasetBase:
             FoVx = focal2fov(fx, width)
             _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
             _mask_tensor = torch.from_numpy(mask) if mask is not None else None
-            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image=_image_tensor, image_name=image_name, image_width=width, image_height=height, mask=_mask_tensor)
+            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image=_image_tensor, 
+                                      image_name=image_name, image_width=width, image_height=height, 
+                                      mask=_mask_tensor, principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)

@@ -53,7 +53,9 @@ class NeRODatasetBase:
             
             FoVy = focal2fov(fy, height)
             FoVx = focal2fov(fx, width)
-            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, image_width=width, image_height=height)
+            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
+                                      image_width=width, image_height=height,
+                                      principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)

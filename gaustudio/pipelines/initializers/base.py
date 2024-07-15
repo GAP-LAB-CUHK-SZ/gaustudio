@@ -21,25 +21,53 @@ class BaseInitializer(ABC):
         pass
     
     @abstractmethod
-    def preprocess(self):
+    def cache_dataset(self, dataset=None):
         """
         Cache required data from the dataset.
+
+        Args:
+            dataset: The dataset from which data needs to be cached.
         """
         pass
 
     @abstractmethod
-    def process(self):
+    def process_dataset(self):
         """
-        Generate an initial model.
+        Process the dataset to generate an initial model.
         """
         pass
 
     @abstractmethod
-    def postprocess(self, model):
+    def build_model(self, model):
         """
         Refine the initial model.
         """
         pass
 
-    def __call__(self, pcd, dataset):
-        pass
+    def __call__(self, model, dataset=None, overwrite=False):
+        """
+        Entry point to run the initialization and model refinement process.
+
+        Args:
+            model: The initial model object to be initialized and refined.
+            dataset: The dataset object to be used for initialization.
+            overwrite (bool): Flag to indicate if existing results should be overwritten.
+
+        Returns:
+            The refined model object.
+        """
+        if overwrite or not self.should_skip():
+            self.cache_dataset(dataset)
+            self.process_dataset()
+        model = self.build_model(model)
+        return model
+
+    def should_skip(self):
+        """
+        Determine if the initialization process should be skipped based on 
+        the existence of prior results and the overwrite flag.
+
+        Returns:
+            bool: Whether to skip the initialization process or not.
+        """
+        return False

@@ -45,7 +45,8 @@ def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
     Rt = np.linalg.inv(C2W)
     return np.float32(Rt)
 
-def getProjectionMatrix(znear, zfar, fovX, fovY):
+# Adopted from https://github.com/hbb1/2d-gaussian-splatting/pull/74
+def getProjectionMatrix(znear, zfar, fovX, fovY, width, height, principal_point_ndc=None):
     tanHalfFovY = math.tan((fovY / 2))
     tanHalfFovX = math.tan((fovX / 2))
 
@@ -53,6 +54,24 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     bottom = -top
     right = tanHalfFovX * znear
     left = -right
+
+    if principal_point_ndc is not None:
+        # shift the frame window due to the non-zero principle point offsets
+        cx = width * principal_point_ndc[0]
+        cy = height * principal_point_ndc[1]
+        tan_fovx = np.tan(fovX / 2.0)
+        tan_fovy = np.tan(fovY / 2.0)
+        focal_x = width / (2.0 * tan_fovx)
+        focal_y = height / (2.0 * tan_fovy)
+        offset_x = cx - (width / 2)
+        offset_x = (offset_x / focal_x) * znear
+        offset_y = cy - (height / 2)
+        offset_y = (offset_y / focal_y) * znear
+
+        top = top + offset_y
+        left = left + offset_x
+        right = right + offset_x
+        bottom = bottom + offset_y
 
     P = torch.zeros(4, 4)
 
@@ -87,6 +106,7 @@ class Camera:
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
     camera_center: torch.tensor = None
+    principal_point_ndc: np.array = None
     
     image_path: str = None
     image_name: str = None
@@ -101,7 +121,10 @@ class Camera:
 
     def _setup(self):
         self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
-        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1)
+        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, 
+                                                     fovX=self.FoVx, fovY=self.FoVy,
+                                                     width=self.image_width, height=self.image_height,
+                                                     principal_point_ndc=self.principal_point_ndc).transpose(0,1)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         
         if self.image_path is not None:
@@ -154,10 +177,10 @@ class Camera:
             gt_image = resized_image_rgb[..., :3]
             self.image = gt_image.clamp(0.0, 1.0)
             self.image_height, self.image_width, _ = gt_image.shape
-            
-            # TODO: Add mask, normal, depth resize
+            # TODO: Add mask, normal, depth resize, modify principle point
         else:
             self.image_height, self.image_width = resolution
+        return self
     
     def downsample_scale(self, scale):
         resolution = round(self.image_width/scale), round(self.image_height/scale)
@@ -169,6 +192,7 @@ class Camera:
             self.image_height, self.image_width, _ = gt_image.shape
         else:
             self.image_width, self.image_height = resolution
+        return self
 
 def register(name):
     def decorator(cls):

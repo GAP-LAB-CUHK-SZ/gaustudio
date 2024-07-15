@@ -88,7 +88,7 @@ class ColmapInitializer(BaseInitializer):
                 try:
                     xyz = np.array([pts3d[k].xyz for k in pts3d])
                     rgb = np.array([pts3d[k].rgb / 255 for k in pts3d])
-                    model.create_from(xyz=xyz, rgb=rgb)
+                    model.create_from_attribute(xyz=xyz, rgb=rgb)
                 except Exception as e:
                     print(f"Failed to update point cloud: {e}")
                     raise

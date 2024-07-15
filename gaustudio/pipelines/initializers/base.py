@@ -44,7 +44,7 @@ class BaseInitializer(ABC):
         """
         pass
 
-    def __call__(self, model, dataset, overwrite=False):
+    def __call__(self, model, dataset=None, overwrite=False):
         """
         Entry point to run the initialization and model refinement process.
 

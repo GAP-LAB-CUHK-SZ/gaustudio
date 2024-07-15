@@ -9,18 +9,31 @@ from typing import List, Dict
 from pathlib import Path
 import torch
 
-class MobileBrickDatasetBase:
+def load_from_log(file_path):
+    with open(file_path, 'r') as file:
+        content = file.readlines()
+
+    image_ids = []
+    intrinsics = []
+    extrinsics = []
+
+    for line in range(0, len(content), 7):
+        image_ids.append(int(content[line]))
+
+        intrinsics.append([float(value) for value in content[line + 1].split()])
+        extrinsics.append([[float(value) for value in content[line + 3].split()], \
+                           [float(value) for value in content[line + 4].split()], \
+                           [float(value) for value in content[line + 5].split()], \
+                           [float(value) for value in content[line + 6].split()]])
+    return image_ids, intrinsics, extrinsics
+
+class NisrDatasetBase:
     def __init__(self, config: Dict):
         self.source_path = Path(config['source_path'])
-        
-        self.image_dir = self.source_path / "image"
-        self.mask_dir = self.source_path / "mask"
-        self.pose_dir = self.source_path /  "pose"
-        self.intrinsic_dir = self.source_path / 'intrinsic'
-        self.image_filenames = sorted([os.path.join(self.image_dir, f) for f in os.listdir(self.image_dir)],
-                                      key=lambda fn: int(os.path.splitext(os.path.basename(fn))[0]))
+        self.image_path = Path(config['source_path']) / "images"
+        self.mask_path = Path(config['source_path']) / "mask"
+        self.cams_path = Path(config['source_path']) / "camera.log"
         self.w_mask = config.get('w_mask', False)
-        
         self._initialize()
         self.ply_path = None
         
@@ -31,26 +44,15 @@ class MobileBrickDatasetBase:
                 raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
-        all_cameras_unsorted = []
-        
-        for image_path in self.image_filenames:
-            image_name = os.path.basename(image_path)
-            _id = os.path.splitext(image_name)[0]
-            _image = cv2.imread(image_path)
+        all_cameras = []
+
+        image_ids, intrinsics, extrinsics = load_from_log(self.cams_path)
+        for _id, K, c2w in zip(image_ids, intrinsics, extrinsics):
+            image_name = f'{_id}.png'
+            image_path = self.image_path / image_name
+            _image = cv2.imread(str(image_path))
             height, width, _ = _image.shape
-
-            intr = np.loadtxt(self.intrinsic_dir /  f'{_id}.txt')
-            fx, fy, cx, cy = intr[0, 0], intr[1, 1], intr[0, 2], intr[1, 2]                
-            c2w = np.loadtxt(self.pose_dir / f'{_id}.txt')
-
-            extrinsics = np.linalg.inv(c2w)
-            R = np.transpose(extrinsics[:3, :3])
-            T = extrinsics[:3, 3]
-            
-            FoVy = focal2fov(fy, height)
-            FoVx = focal2fov(fx, width)
-            
-            mask_path = self.mask_dir / f'{_id}.png'
+            mask_path = self.mask_path / f'{_id}.png'
             if self.w_mask and os.path.exists(mask_path):
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                 _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY) # Ensure mask is binary so multiply operation works as expected
@@ -64,13 +66,28 @@ class MobileBrickDatasetBase:
                 _image = cv2.addWeighted(masked_image, 1, background, 1, 0)
             else:
                 mask = None
+
+            fx, fy, cx, cy = K[0], K[1], K[2], K[3]
+
+            c2w = np.array(c2w)
+            # c2w[:,1:3] *= -1            
+            
+            extrinsics = np.linalg.inv(c2w)
+            R = np.transpose(extrinsics[:3, :3])
+            T = extrinsics[:3, 3]
+            
+            FoVy = focal2fov(fy, height)
+            FoVx = focal2fov(fx, width)
+
             _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
-            _mask_tensor = torch.from_numpy(mask)
+            _mask_tensor = torch.from_numpy(mask) if mask is not None else None
             _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image=_image_tensor, image_name=image_name, 
                                       image_width=width, image_height=height, mask=_mask_tensor,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
-            all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
+            all_cameras.append(_camera)
+            if _id == 20:
+                break
+        self.all_cameras = all_cameras
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
     
@@ -82,9 +99,9 @@ class MobileBrickDatasetBase:
             json_cams.append(camera_to_JSON(id, cam))
         with open(save_path, 'w') as file:
             json.dump(json_cams, file)
-            
-@datasets.register('mobilebrick')
-class MobileBrickDataset(Dataset, MobileBrickDatasetBase):
+
+@datasets.register('nisr')
+class NisrDataset(Dataset, NisrDatasetBase):
     def __init__(self, config):
         super().__init__(config)
 

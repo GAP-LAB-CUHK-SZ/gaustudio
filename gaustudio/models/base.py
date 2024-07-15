@@ -63,10 +63,11 @@ class BasePointCloud(nn.Module):
         
     def create_from_attribute(self, **args):
         for elem in args:
-            setattr(self, '_'+elem, args[elem])
-            self.num_points = args[elem].shape[0]
-        self.config["attributes"] = args.keys()
-    
+            tensor_value = torch.as_tensor(args[elem])
+            setattr(self, '_' + elem, tensor_value)
+            self.num_points = tensor_value.shape[0]
+        self.config["attributes"] = list(args.keys())
+        
     def load(self, ply_path: str):
         plydata = PlyData.read(ply_path)  
         self.num_points = plydata['vertex'].count

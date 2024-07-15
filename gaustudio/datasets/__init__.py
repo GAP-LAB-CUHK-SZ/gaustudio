@@ -131,7 +131,7 @@ class Camera:
             self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
-        print(self.principal_point_ndc)
+        
         # Compute camera center from inverse view matrix
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]
@@ -159,8 +159,8 @@ class Camera:
         tan_fovy = np.tan(self.FoVy / 2.0)
         focal_y = self.image_height / (2.0 * tan_fovy)
         focal_x = self.image_width / (2.0 * tan_fovx)
-        return torch.tensor([[focal_x, 0, self.image_width * principal_point_ndc[0]], 
-                             [0, focal_y, self.image_height * principal_point_ndc[1]], 
+        return torch.tensor([[focal_x, 0, self.image_width * self.principal_point_ndc[0]], 
+                             [0, focal_y, self.image_height * self.principal_point_ndc[1]], 
                              [0, 0, 1]]).float()
      
     @extrinsics.setter

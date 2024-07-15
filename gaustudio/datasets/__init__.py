@@ -106,7 +106,7 @@ class Camera:
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
     camera_center: torch.tensor = None
-    principal_point_ndc: np.array = None
+    principal_point_ndc: np.array([0.5, 0.5])
     
     image_path: str = None
     image_name: str = None
@@ -159,8 +159,8 @@ class Camera:
         tan_fovy = np.tan(self.FoVy / 2.0)
         focal_y = self.image_height / (2.0 * tan_fovy)
         focal_x = self.image_width / (2.0 * tan_fovx)
-        return torch.tensor([[focal_x, 0, self.image_width / 2], 
-                             [0, focal_y, self.image_height / 2], 
+        return torch.tensor([[focal_x, 0, self.image_width * principal_point_ndc[0]], 
+                             [0, focal_y, self.image_height * principal_point_ndc[1]], 
                              [0, 0, 1]]).float()
      
     @extrinsics.setter

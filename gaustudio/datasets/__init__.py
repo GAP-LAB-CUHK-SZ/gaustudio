@@ -105,8 +105,8 @@ class Camera:
 
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
-    camera_center: torch.tensor = None
-    principal_point_ndc: np.array([0.5, 0.5])
+    camera_center: torch.tensor = None    
+    principal_point_ndc: np.array = np.array([0.5, 0.5])
     
     image_path: str = None
     image_name: str = None
@@ -131,7 +131,7 @@ class Camera:
             self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
-
+        print(self.principal_point_ndc)
         # Compute camera center from inverse view matrix
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]

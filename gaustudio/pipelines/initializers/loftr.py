@@ -1,7 +1,5 @@
 import os
-import pycolmap
 import numpy as np
-import torchvision
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.colmap import ColmapInitializer
 
@@ -9,7 +7,7 @@ from gaustudio.utils.colmap_utils import create_images_from_pose_dict
 
 @initializers.register('loftr')
 class LoftrInitializer(ColmapInitializer):
-    def process(self):
+    def process_dataset(self):
         from pathlib import Path
         from hloc import match_dense, triangulation, pairs_from_poses
         

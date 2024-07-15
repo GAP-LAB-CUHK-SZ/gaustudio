@@ -6,9 +6,8 @@ from torch.utils.data import Dataset, DataLoader
 
 import os
 import cv2
-import sys
 import json
-
+import warnings
 import numpy as np
 from PIL import Image
 from typing import List, Dict 
@@ -70,7 +69,13 @@ class ColmapDatasetBase:
                 FoVx = focal2fov(focal_length_x, width)
                 cx = intr.params[1]
                 cy = intr.params[2]
-            elif intr.model=="PINHOLE":
+            elif intr.model=="PINHOLE" or intr.model=="OPENCV":
+                if intr.model == "OPENCV":
+                    warnings.warn(
+                        "OpenCV camera model detected. Distortion parameters will be discarded, which may degrade image quality. "
+                        "It is recommended to run undistortion on your images before proceeding.",
+                        UserWarning
+                    )
                 focal_length_x = intr.params[0]
                 focal_length_y = intr.params[1]
                 FoVy = focal2fov(focal_length_y, height)

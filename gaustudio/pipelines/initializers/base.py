@@ -20,7 +20,6 @@ class BaseInitializer(ABC):
     def setup(self):
         pass
     
-    @abstractmethod
     def cache_dataset(self, dataset=None):
         """
         Cache required data from the dataset.
@@ -30,7 +29,6 @@ class BaseInitializer(ABC):
         """
         pass
 
-    @abstractmethod
     def process_dataset(self):
         """
         Process the dataset to generate an initial model.

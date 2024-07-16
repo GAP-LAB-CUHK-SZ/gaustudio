@@ -89,7 +89,7 @@ class VanillaPointCloud(BasePointCloud):
         self._f_rest = torch.zeros(f_rest_shape, dtype=torch.float32).to(device)
 
         if scale is None:
-            dist2 = self.calculate_dist2()
+            dist2 = self.calculate_dist2()(self._xyz)
             self._scale = torch.log(torch.sqrt(dist2 + 1e-7))[..., None].repeat(1, 3)
         else:
             self._scale = torch.tensor(scale, dtype=torch.float32).to(device)
@@ -110,7 +110,7 @@ class VanillaPointCloud(BasePointCloud):
             from simple_knn._C import distCUDA2
             dist2 = distCUDA2
         except ImportError:
-            dist2 = self.calculate_dist2_python
+            dist2 = calculate_dist2_python
         return dist2
 
     def export(self, path):

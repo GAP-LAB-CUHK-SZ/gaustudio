@@ -14,8 +14,6 @@ class BaseInitializer(ABC):
             workspace_dir (str): The path to the target directory for storing results.
         """
         self.initializer_config = initializer_config
-        self.ws_dir = self.initializer_config['workspace_dir']
-        os.makedirs(self.ws_dir, exist_ok=True)
 
     def setup(self):
         pass

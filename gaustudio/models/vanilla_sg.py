@@ -75,11 +75,14 @@ class VanillaPointCloud(BasePointCloud):
         features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
         return torch.cat((features_dc, features_rest), dim=1)
     
-    def create_from_attribute(self, xyz, rgb, scale=None, rot=None, **args):
+    def create_from_attribute(self, xyz, rgb=None, scale=None, rot=None, opacity=None, **args):
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self._xyz = torch.tensor(xyz, dtype=torch.float32).to(device)
+        self.num_points = xyz.shape[0]
 
+        if rgb is None:
+            rgb = torch.ones_like(self._xyz)
         fused_color = RGB2SH(torch.tensor(rgb, dtype=torch.float32).to(device))
         self._f_dc = fused_color.unsqueeze(-1).transpose(1, 2).contiguous()
         f_rest_shape = (fused_color.shape[0], (self.max_sh_degree + 1) ** 2 - 1, 3)
@@ -89,15 +92,18 @@ class VanillaPointCloud(BasePointCloud):
             dist2 = self.calculate_dist2()
             self._scale = torch.log(torch.sqrt(dist2 + 1e-7))[..., None].repeat(1, 3)
         else:
-            self._scale = scale
+            self._scale = torch.tensor(scale, dtype=torch.float32).to(device)
 
         if rot is None:
             self._rot = torch.zeros((self._xyz.shape[0], 4), dtype=torch.float32).to(device)
             self._rot[:, 0] = 1
         else:
-            self._rot = rot
+            self._rot = torch.tensor(rot, dtype=torch.float32).to(device)
 
-        self._opacity = self.inverse_sigmoid(0.1 * torch.ones((self._xyz.shape[0], 1), dtype=torch.float32).to(device))
+        if opacity is None:
+            self._opacity = inverse_sigmoid(0.1 * torch.ones((self._xyz.shape[0], 1), dtype=torch.float32).to(device))
+        else:
+            self._opacity = torch.tensor(opacity, dtype=torch.float32).to(device)
 
     def calculate_dist2(self):
         try:

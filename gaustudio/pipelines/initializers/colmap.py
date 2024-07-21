@@ -19,11 +19,6 @@ class ColmapInitializer(BaseInitializer):
         self.pose_dict = {}
     
     def __call__(self, model, dataset, overwrite=False):
-        # Load ply file if available
-        if dataset.ply_path is not None and os.path.exists(dataset.ply_path) and not overwrite: 
-            model.load(dataset.ply_path)
-            return model
-
         # Skip processing if sparse results exists
         if not os.path.exists(f'{self.ws_dir}/sparse') or overwrite:
             self.cache_dataset(dataset)

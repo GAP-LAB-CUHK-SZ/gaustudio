@@ -75,49 +75,53 @@ class VanillaPointCloud(BasePointCloud):
         features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
         return torch.cat((features_dc, features_rest), dim=1)
     
-    def create_from_attribute(self, xyz, rgb, scale=None, rot=None, **args):
+    def create_from_attribute(self, xyz, rgb=None, scale=None, rot=None, opacity=None, **args):
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self._xyz = torch.tensor(xyz, dtype=torch.float32).to(device)
+        self.num_points = xyz.shape[0]
 
+        if rgb is None:
+            rgb = torch.ones_like(self._xyz)
         fused_color = RGB2SH(torch.tensor(rgb, dtype=torch.float32).to(device))
         self._f_dc = fused_color.unsqueeze(-1).transpose(1, 2).contiguous()
         f_rest_shape = (fused_color.shape[0], (self.max_sh_degree + 1) ** 2 - 1, 3)
         self._f_rest = torch.zeros(f_rest_shape, dtype=torch.float32).to(device)
 
         if scale is None:
-            dist2 = self.calculate_dist2()
+            dist2 = self.calculate_dist2()(self._xyz)
             self._scale = torch.log(torch.sqrt(dist2 + 1e-7))[..., None].repeat(1, 3)
         else:
-            self._scale = scale
+            self._scale = torch.tensor(scale, dtype=torch.float32).to(device)
 
         if rot is None:
             self._rot = torch.zeros((self._xyz.shape[0], 4), dtype=torch.float32).to(device)
             self._rot[:, 0] = 1
         else:
-            self._rot = rot
+            self._rot = torch.tensor(rot, dtype=torch.float32).to(device)
 
-        self._opacity = self.inverse_sigmoid(0.1 * torch.ones((self._xyz.shape[0], 1), dtype=torch.float32).to(device))
+        if opacity is None:
+            self._opacity = inverse_sigmoid(0.1 * torch.ones((self._xyz.shape[0], 1), dtype=torch.float32).to(device))
+        else:
+            self._opacity = torch.tensor(opacity, dtype=torch.float32).to(device)
 
     def calculate_dist2(self):
         try:
             from simple_knn._C import distCUDA2
             dist2 = distCUDA2
         except ImportError:
-            dist2 = self.calculate_dist2_python
+            dist2 = calculate_dist2_python
         return dist2
 
     def export(self, path):
-        xyz = self._xyz
+        xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
-        f_dc = self._f_dc
-        f_rest = self._f_rest
-        opacities = self._opacity
-        scale = self._scale
-        rotation = self._rot
-
+        f_dc = self._f_dc.transpose(1, 2).flatten(start_dim=1).detach().cpu().numpy()
+        f_rest = self._f_rest.transpose(1, 2).flatten(start_dim=1).detach().cpu().numpy()
+        opacities = self._opacity.detach().cpu().numpy()
+        scale = self._scale.detach().cpu().numpy()
+        rotation = self._rot.detach().cpu().numpy()
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
-
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
         attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
@@ -128,9 +132,9 @@ class VanillaPointCloud(BasePointCloud):
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
-        for i in range(self._f_dc.shape[1]):
+        for i in range(self._f_dc.shape[1]*self._f_dc.shape[2]):
             l.append('f_dc_{}'.format(i))
-        for i in range(self._f_rest.shape[1]):
+        for i in range(self._f_rest.shape[1]*self._f_rest.shape[2]):
             l.append('f_rest_{}'.format(i))
         l.append('opacity')
         for i in range(self._scale.shape[1]):

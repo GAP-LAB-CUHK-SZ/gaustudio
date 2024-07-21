@@ -14,13 +14,10 @@ class BaseInitializer(ABC):
             workspace_dir (str): The path to the target directory for storing results.
         """
         self.initializer_config = initializer_config
-        self.ws_dir = self.initializer_config['workspace_dir']
-        os.makedirs(self.ws_dir, exist_ok=True)
 
     def setup(self):
         pass
     
-    @abstractmethod
     def cache_dataset(self, dataset=None):
         """
         Cache required data from the dataset.
@@ -30,7 +27,6 @@ class BaseInitializer(ABC):
         """
         pass
 
-    @abstractmethod
     def process_dataset(self):
         """
         Process the dataset to generate an initial model.

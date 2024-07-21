@@ -10,6 +10,9 @@ from gaustudio.utils.colmap_utils import COLMAPDatabase, create_images_bin, crea
 class ColmapInitializer(BaseInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
+        self.ws_dir = self.initializer_config['workspace_dir']
+        os.makedirs(self.ws_dir, exist_ok=True)
+        
         self.db_path = os.path.join(self.ws_dir, "database.db")
         self.images_dir = os.path.join(self.ws_dir, 'images')
         os.makedirs(self.images_dir, exist_ok=True)

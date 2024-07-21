@@ -27,7 +27,7 @@ class BasePointCloud(nn.Module):
                 self._opacity = self._opacity.to(device)
             else:
                 setattr(self, '_'+elem, getattr(self, '_'+elem).to(device))
-
+        return self
     
     @property
     def get_center_and_size(self):
@@ -94,7 +94,6 @@ class BasePointCloud(nn.Module):
                 if len(names) == 0:
                     continue
                 
-                assert len(names) == self.config["attributes"][elem]
                 
                 data = np.zeros((self.num_points, len(names)))
                 for i, name in enumerate(names):

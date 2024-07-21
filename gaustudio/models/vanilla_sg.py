@@ -116,8 +116,8 @@ class VanillaPointCloud(BasePointCloud):
     def export(self, path):
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
-        f_dc = self._f_dc.transpose(1, 2).flatten(start_dim=1).detach().cpu().numpy()
-        f_rest = self._f_rest.transpose(1, 2).flatten(start_dim=1).detach().cpu().numpy()
+        f_dc = self._f_dc.reshape(len(self._f_dc), -1, 3).transpose(1, 2).flatten(start_dim=1).detach().cpu().numpy()
+        f_rest = self._f_rest.reshape(len(self._f_dc), -1, 3).transpose(1, 2).flatten(start_dim=1).detach().cpu().numpy()
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scale.detach().cpu().numpy()
         rotation = self._rot.detach().cpu().numpy()
@@ -132,9 +132,18 @@ class VanillaPointCloud(BasePointCloud):
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
-        for i in range(self._f_dc.shape[1]*self._f_dc.shape[2]):
+        if len(self._f_dc.shape) == 2:
+            _f_dc_len = self._f_dc.shape[1]
+        else:
+            _f_dc_len = self._f_dc.shape[1]*self._f_dc.shape[2]
+        if len(self._f_rest.shape) == 2:
+            _f_rest_len = self._f_rest.shape[1]
+        else:
+            _f_rest_len = self._f_rest.shape[1]*self._f_rest.shape[2]
+            
+        for i in range(_f_dc_len):
             l.append('f_dc_{}'.format(i))
-        for i in range(self._f_rest.shape[1]*self._f_rest.shape[2]):
+        for i in range(_f_rest_len):
             l.append('f_rest_{}'.format(i))
         l.append('opacity')
         for i in range(self._scale.shape[1]):

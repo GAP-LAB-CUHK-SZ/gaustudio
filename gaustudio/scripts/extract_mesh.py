@@ -40,7 +40,6 @@ def main():
     from gaustudio.utils.misc import load_config
     from gaustudio import models, datasets, renderers
     from gaustudio.utils.cameras_utils import JSON_to_camera
-    from gaustudio.utils.graphics_utils import depth2point
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -102,8 +101,7 @@ def main():
         rendering[:, invalid_mask] = 0.
         rendered_depth[invalid_mask] = 0
 
-        rendered_pcd_cam, rendered_pcd_world = depth2point(rendered_depth, camera.intrinsics.to(rendered_depth.device), 
-                                                                      camera.extrinsics.to(rendered_depth.device))
+        rendered_pcd_world = camera.depth2point(rendered_depth, coordinate='world')
         rendered_pcd_world = rendered_pcd_world[~invalid_mask]
         
         P = camera.extrinsics

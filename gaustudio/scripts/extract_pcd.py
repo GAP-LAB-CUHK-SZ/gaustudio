@@ -81,7 +81,6 @@ def main():
     
     from gaustudio.utils.sh_utils import SH2RGB
     from gaustudio.datasets.utils import getNerfppNorm
-    from gaustudio.utils.graphics_utils import depth_to_normal
     scene_radius = getNerfppNorm(cameras)["radius"]
     all_ids = []
     all_normals = []
@@ -92,16 +91,16 @@ def main():
             render_pkg = renderer.render(camera, pcd)
         rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
         rendered_depth = render_pkg["rendered_depth"][0]
-        depth_gradients = camera.depth2normal(rendered_depth)        
+        normals = camera.depth2normal(rendered_depth, coordinate='world')        
         median_point_depths =  render_pkg["rendered_median_depth"][0]
         median_point_ids =  render_pkg["rendered_median_depth"][2].int()
         median_point_weights =  render_pkg["rendered_median_depth"][1]
         valid_mask = (rendered_final_opacity > 0.5) & (median_point_weights > 0.1)
         valid_mask = (median_point_depths < scene_radius * 1.5) & valid_mask
-        valid_mask = (depth_gradients.sum(dim=-1) > 0) & valid_mask
+        valid_mask = (normals.sum(dim=-1) > -3) & valid_mask
 
         median_point_ids = median_point_ids[valid_mask]
-        median_point_normals = -depth_gradients[valid_mask]
+        median_point_normals = -normals[valid_mask]
         
         all_ids.append(median_point_ids)
         all_normals.append(median_point_normals)

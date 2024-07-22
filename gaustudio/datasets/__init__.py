@@ -226,7 +226,7 @@ class Camera:
         return None
 
     # Adapted from https://github.com/baegwangbin/DSINE/blob/main/utils/d2n/cross.py
-    def depth2normal(self, depth=None, k: int = 3, d_min: float = 1e-3, d_max: float = 10.0):
+    def depth2normal(self, depth=None, k: int = 3, d_min: float = 1e-3, d_max: float = 10.0, coordinate='camera'):
         if depth is None:
             depth = self.depth
         if depth is None:
@@ -258,6 +258,10 @@ class Camera:
         # get cross product (B, 3, H, W)
         cross_product = - torch.linalg.cross(vec_vert, vec_hori, dim=1)
         normal = F.normalize(cross_product, p=2.0, dim=1, eps=1e-12)
+        
+        if coordinate == 'world':
+            normal = normal.permute(0, 2, 3, 1) @ self.extrinsics[:3, :3].inverse().t()
+            normal = normal.permute(0, 3, 1, 2)
         normal[~valid_mask.repeat(1, 3, 1, 1)] = -1
         
         return normal.squeeze(0).permute(1, 2, 0)

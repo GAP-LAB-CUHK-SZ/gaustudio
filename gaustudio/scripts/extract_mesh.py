@@ -89,7 +89,7 @@ def main():
     mask_path = os.path.join(work_dir, "masks")
     os.makedirs(render_path, exist_ok=True)
     os.makedirs(mask_path, exist_ok=True)
-    for camera in tqdm(cameras[::3]):
+    for camera in tqdm(cameras[:10]):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():
@@ -102,8 +102,7 @@ def main():
         rendering[:, invalid_mask] = 0.
         rendered_depth[invalid_mask] = 0
 
-        rendered_pcd_cam, rendered_pcd_world = depth2point(rendered_depth, camera.intrinsics.to(rendered_depth.device), 
-                                                                      camera.extrinsics.to(rendered_depth.device))
+        rendered_pcd_world = camera.depth2point(rendered_depth, coordinate='world')
         rendered_pcd_world = rendered_pcd_world[~invalid_mask]
         
         P = camera.extrinsics

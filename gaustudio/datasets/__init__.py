@@ -86,6 +86,14 @@ def getProjectionMatrix(znear, zfar, fovX, fovY, width, height, principal_point_
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
 
+def ndc_2_cam(ndc_xyz, intrinsic, W, H):
+    inv_scale = torch.tensor([[W - 1, H - 1]], device=ndc_xyz.device)
+    cam_z = ndc_xyz[..., 2:3]
+    cam_xy = ndc_xyz[..., :2] * inv_scale * cam_z
+    cam_xyz = torch.cat([cam_xy, cam_z], dim=-1)
+    cam_xyz = cam_xyz @ torch.inverse(intrinsic.t())
+    return cam_xyz
+
 @dataclasses.dataclass
 class Camera:
 
@@ -182,16 +190,49 @@ class Camera:
             self.image_height, self.image_width = resolution
         return self
     
+    def depth2point(self, depth=None, coordinate='camera'):
+        if depth is None:
+            depth = self.depth
+        if depth is None:
+            raise ValueError("Depth is not available.")
+        
+        depth_height, depth_width = depth.shape
+
+        valid_x = torch.arange(depth_width, dtype=torch.float32, device=depth.device) / (depth_width - 1)
+        valid_y = torch.arange(depth_height, dtype=torch.float32, device=depth.device) / (depth_height - 1)
+        valid_y, valid_x = torch.meshgrid(valid_y, valid_x)
+        ndc_xyz = torch.stack([valid_x, valid_y, depth], dim=-1)
+        
+        if coordinate == 'ndc':
+            return ndc_xyz
+        else:
+            # cam_x = torch.arange(depth_width, dtype=torch.float32, device=depth.device)
+            # cam_y = torch.arange(depth_height, dtype=torch.float32, device=depth.device)
+            # cam_x, cam_y = torch.meshgrid(cam_y, cam_x)
+            # cam_xy = torch.stack([cam_x, cam_y], dim=-1) * depth[..., None]
+            # cam_xyz = torch.cat([cam_xy, depth[..., None]], axis=-1)         
+            # cam_xyz = cam_xyz @ torch.inverse(self.intrinsics.to(depth.device).t())
+            cam_xyz = ndc_2_cam(ndc_xyz[None, None, None, ...], self.intrinsics.to(depth.device), depth_width, depth_height)
+        if coordinate == 'camera':
+            return cam_xyz
+        elif coordinate == 'world':
+            cam_xyz = cam_xyz.reshape(-1,3)
+            world_xyz = torch.cat([cam_xyz, torch.ones_like(cam_xyz[...,0:1])], axis=-1) @ torch.inverse(self.extrinsics.to(depth.device)).transpose(0,1)
+            world_xyz = world_xyz[..., :3]
+            return world_xyz.reshape(*depth.shape, 3)
+        else:
+            raise ValueError("Invalid coordinate system.")
+        return None
+
     def downsample_scale(self, scale):
         resolution = round(self.image_width/scale), round(self.image_height/scale)
         if self.image is not None:
             resized_image_rgb = resizeTorch(self.image, resolution)
-            
-            gt_image = resized_image_rgb[..., :3]
-            self.image = gt_image.clamp(0.0, 1.0)
-            self.image_height, self.image_width, _ = gt_image.shape
-        else:
-            self.image_width, self.image_height = resolution
+            self.image = resized_image_rgb[..., :3].clamp(0.0, 1.0)
+        if self.bg_image is not None:
+            resized_bg_image_rgb = resizeTorch(self.bg_image, resolution)
+            self.bg_image = resized_bg_image_rgb[..., :3].clamp(0.0, 1.0)
+        self.image_width, self.image_height = resolution
         return self
 
 def register(name):

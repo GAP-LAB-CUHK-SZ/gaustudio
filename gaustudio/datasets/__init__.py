@@ -5,6 +5,7 @@ import dataclasses
 import math
 import os
 import torch
+import torch.nn.functional as F
 
 def resizeTorch(tensor_image, resolution):
     if tensor_image.ndim != 3 or tensor_image.shape[2] != 3:
@@ -214,7 +215,7 @@ class Camera:
             # cam_xyz = cam_xyz @ torch.inverse(self.intrinsics.to(depth.device).t())
             cam_xyz = ndc_2_cam(ndc_xyz[None, None, None, ...], self.intrinsics.to(depth.device), depth_width, depth_height)
         if coordinate == 'camera':
-            return cam_xyz
+            return cam_xyz.reshape(*depth.shape, 3)
         elif coordinate == 'world':
             cam_xyz = cam_xyz.reshape(-1,3)
             world_xyz = torch.cat([cam_xyz, torch.ones_like(cam_xyz[...,0:1])], axis=-1) @ torch.inverse(self.extrinsics.to(depth.device)).transpose(0,1)
@@ -223,6 +224,43 @@ class Camera:
         else:
             raise ValueError("Invalid coordinate system.")
         return None
+
+    # Adapted from https://github.com/baegwangbin/DSINE/blob/main/utils/d2n/cross.py
+    def depth2normal(self, depth=None, k: int = 3, d_min: float = 1e-3, d_max: float = 10.0):
+        if depth is None:
+            depth = self.depth
+        if depth is None:
+            raise ValueError("Depth is not available.")
+        
+        points = self.depth2point(depth, coordinate='camera')[None, ...]
+        points = points.permute(0, 3, 1, 2)
+        k = (k - 1) // 2
+
+        B, _, H, W = points.size()
+        points_pad = F.pad(points, (k,k,k,k), mode='constant', value=0)             # (B, 3, k+H+k, k+W+k)
+        valid_pad = (points_pad[:,2:,:,:] > d_min) & (points_pad[:,2:,:,:] < d_max) # (B, 1, k+H+k, k+W+k)
+        valid_pad = valid_pad.float()
+
+        # vertical vector (top - bottom)
+        vec_vert = points_pad[:, :, :H, k:k+W] - points_pad[:, :, 2*k:2*k+H, k:k+W]   # (B, 3, H, W)
+
+        # horizontal vector (left - right)
+        vec_hori = points_pad[:, :, k:k+H, :W] - points_pad[:, :, k:k+H, 2*k:2*k+W]   # (B, 3, H, W)
+
+        # valid_mask (all five depth values - center/top/bottom/left/right should be valid)
+        valid_mask = valid_pad[:, :, k:k+H,     k:k+W       ] * \
+                    valid_pad[:, :, :H,        k:k+W       ] * \
+                    valid_pad[:, :, 2*k:2*k+H, k:k+W       ] * \
+                    valid_pad[:, :, k:k+H,     :W          ] * \
+                    valid_pad[:, :, k:k+H,     2*k:2*k+W   ]
+        valid_mask = valid_mask > 0.5
+        
+        # get cross product (B, 3, H, W)
+        cross_product = - torch.linalg.cross(vec_vert, vec_hori, dim=1)
+        normal = F.normalize(cross_product, p=2.0, dim=1, eps=1e-12)
+        normal[~valid_mask.repeat(1, 3, 1, 1)] = -1
+        
+        return normal.squeeze(0).permute(1, 2, 0)
 
     def downsample_scale(self, scale):
         resolution = round(self.image_width/scale), round(self.image_height/scale)

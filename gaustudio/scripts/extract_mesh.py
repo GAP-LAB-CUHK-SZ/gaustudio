@@ -40,7 +40,6 @@ def main():
     from gaustudio.utils.misc import load_config
     from gaustudio import models, datasets, renderers
     from gaustudio.utils.cameras_utils import JSON_to_camera
-    from gaustudio.utils.graphics_utils import depth2point
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -89,7 +88,7 @@ def main():
     mask_path = os.path.join(work_dir, "masks")
     os.makedirs(render_path, exist_ok=True)
     os.makedirs(mask_path, exist_ok=True)
-    for camera in tqdm(cameras[:10]):
+    for camera in tqdm(cameras[::3]):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():

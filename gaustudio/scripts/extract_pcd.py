@@ -91,9 +91,8 @@ def main():
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
         rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
-        rendered_depth = render_pkg["rendered_depth"]
-        depth_gradients = depth_to_normal(camera, rendered_depth)
-
+        rendered_depth = render_pkg["rendered_depth"][0]
+        depth_gradients = camera.depth2normal(rendered_depth)        
         median_point_depths =  render_pkg["rendered_median_depth"][0]
         median_point_ids =  render_pkg["rendered_median_depth"][2].int()
         median_point_weights =  render_pkg["rendered_median_depth"][1]

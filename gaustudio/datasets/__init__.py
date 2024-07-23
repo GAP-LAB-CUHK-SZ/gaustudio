@@ -26,6 +26,25 @@ def resizeTorch(tensor_image, resolution):
     resized_tensor_image = torch.from_numpy(np.array(resized_pil_image)).float() / 255.0
     return resized_tensor_image
 
+def resizeDepthTorch(tensor_depth_image, resolution):
+    if tensor_depth_image.ndim != 2:
+        raise ValueError("Input tensor must have shape [H, W]")
+
+    # Convert tensor to PIL image for resizing
+    depth_image_np = tensor_depth_image.cpu().numpy()
+
+    # Handle the conversion to a PIL image ensuring to maintain depth values as float32.
+    pil_depth_image = Image.fromarray(depth_image_np.astype(np.float32))
+
+    # Resize using the target resolution.
+    resized_pil_depth_image = pil_depth_image.resize(resolution, Image.NEAREST)
+
+    # Convert back to tensor, keeping depth values as they are.
+    resized_depth_image_np = np.array(resized_pil_depth_image).astype(np.float32)
+    resized_tensor_depth_image = torch.from_numpy(resized_depth_image_np)
+
+    return resized_tensor_depth_image
+
 def getWorld2View(R, t):
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = R.transpose()
@@ -274,6 +293,8 @@ class Camera:
         if self.bg_image is not None:
             resized_bg_image_rgb = resizeTorch(self.bg_image, resolution)
             self.bg_image = resized_bg_image_rgb[..., :3].clamp(0.0, 1.0)
+        if self.depth is not None:
+            self.depth = resizeDepthTorch(self.depth, resolution)
         self.image_width, self.image_height = resolution
         return self
 

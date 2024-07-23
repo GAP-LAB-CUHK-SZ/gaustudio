@@ -23,4 +23,4 @@ def make(config):
     model = initlalizers[name](config)
     return model
 
-from . import colmap, loftr, gaussiansky
+from . import colmap, loftr, gaussiansky, depth

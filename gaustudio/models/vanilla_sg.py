@@ -66,15 +66,6 @@ class VanillaPointCloud(BasePointCloud):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
-    def get_covariance(self, scaling_modifier = 1):
-        return self.covariance_activation(self.get_attribute("scale"), scaling_modifier, self._rot)
-
-    @property
-    def get_features(self):
-        features_dc = self._f_dc.reshape(len(self._f_dc), -1, 3)
-        features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
-        return torch.cat((features_dc, features_rest), dim=1)
-    
     def create_from_attribute(self, xyz, rgb=None, scale=None, rot=None, opacity=None, **args):
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -105,6 +96,43 @@ class VanillaPointCloud(BasePointCloud):
         else:
             self._opacity = torch.tensor(opacity, dtype=torch.float32).to(device)
 
+    def get_covariance(self, scaling_modifier = 1):
+        return self.covariance_activation(self.get_attribute("scale"), scaling_modifier, self._rot)
+
+    @property
+    def get_features(self):
+        features_dc = self._f_dc.reshape(len(self._f_dc), -1, 3)
+        features_rest = self._f_rest.reshape(len(self._f_dc), -1, 3)
+        return torch.cat((features_dc, features_rest), dim=1)
+    
+    @property
+    def get_opacity(self):
+        return self._opacity
+    
+    @property
+    def get_scaling(self):
+        return self._scale
+    
+    @property
+    def get_rotation(self):
+        return self._rot
+    
+    @property
+    def get_xyz(self):
+        return self._xyz
+    
+    @property
+    def get_num_points(self):
+        return self.num_points
+    
+    @property
+    def get_features_dc(self):
+        return self._f_dc.reshape(self.num_points, -1, 3)
+    
+    @property
+    def get_features_rest(self):
+        return self._f_rest.reshape(self.num_points, -1, 3)
+    
     def calculate_dist2(self):
         try:
             from simple_knn._C import distCUDA2

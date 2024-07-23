@@ -9,12 +9,17 @@ import math
 from tqdm import tqdm
 import numpy as np
 import trimesh
-
+import tempfile
+from copy import deepcopy
 @initializers.register('unproject')
 class UnprojectInitializer(BaseInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
-        self.ws_dir = self.initializer_config['workspace_dir']
+        self.ws_dir = self.initializer_config.get('workspace_dir')
+        if self.ws_dir is None:
+            self.ws_dir = tempfile.mkdtemp()
+            print(f"No workspace directory provided. Using temporary directory: {self.ws_dir}")
+
         os.makedirs(self.ws_dir, exist_ok=True)
 
     def __call__(self, model, dataset, overwrite=False):
@@ -31,7 +36,8 @@ class UnprojectInitializer(BaseInitializer):
 
         self.cache_pcd_paths = []
         for _id, camera in tqdm(enumerate(dataset), total=len(dataset)):  # Add total for tqdm progress bar
-            camera.downsample_scale(4).to("cuda")
+            camera = deepcopy(camera)
+            camera = camera.downsample_scale(4).to("cuda")
             world_xyz = camera.depth2point(coordinate='world').cpu().numpy()  # Ensure conversion to numpy
             world_rgb = camera.image.cpu().numpy()  # Ensure conversion to numpy
             pcd = np.hstack((world_xyz.reshape(-1, 3), world_rgb.reshape(-1, 3)))

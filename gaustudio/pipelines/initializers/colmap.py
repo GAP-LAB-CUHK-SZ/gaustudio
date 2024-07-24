@@ -2,6 +2,7 @@ import os
 import pycolmap
 import numpy as np
 import torchvision
+import tempfile
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 from gaustudio.utils.colmap_utils import COLMAPDatabase, create_images_bin, create_cameras_and_points_bin
@@ -10,9 +11,13 @@ from gaustudio.utils.colmap_utils import COLMAPDatabase, create_images_bin, crea
 class ColmapInitializer(BaseInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
-        self.ws_dir = self.initializer_config['workspace_dir']
+        self.ws_dir = self.initializer_config.get('workspace_dir')
+        if self.ws_dir is None:
+            self.ws_dir = tempfile.mkdtemp()
+            print(f"No workspace directory provided. Using temporary directory: {self.ws_dir}")
+
         os.makedirs(self.ws_dir, exist_ok=True)
-        
+
         self.db_path = os.path.join(self.ws_dir, "database.db")
         self.images_dir = os.path.join(self.ws_dir, 'images')
         os.makedirs(self.images_dir, exist_ok=True)
@@ -53,7 +58,7 @@ class ColmapInitializer(BaseInitializer):
             os.remove(self.db_path)
         
         pycolmap.extract_features(image_path=self.images_dir, database_path=self.db_path)
-        pycolmap.match_exhaustive(self.db_path)
+        pycolmap.match_sequential(self.db_path)
         
         db = COLMAPDatabase.connect(self.db_path)
         images = list(db.execute('select * from images'))

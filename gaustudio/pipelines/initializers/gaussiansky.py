@@ -2,6 +2,7 @@ import os
 import pycolmap
 import numpy as np
 import torchvision
+import torch
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 import math
@@ -46,11 +47,49 @@ class GaussianSkyInitializer(BaseInitializer):
         # TODO: add rgb generation from dataset
         
         dist = euclidean_distance(xyz[0], xyz[1])
-        dist = math.log(dist)
+        dist = math.log(dist * 1.5)
         scale = np.ones_like(xyz) * dist
         opacity = inverse_sigmoid(np.ones((xyz.shape[0], 1)))
         try:
             model.create_from_attribute(xyz=xyz, scale=scale, opacity=opacity)
+        except Exception as e:
+            print(f"Failed to update point cloud: {e}")
+            raise
+        return model
+
+@initializers.register('multigaussiansky')
+class MultiGaussianSkyInitializer(BaseInitializer):
+    def __init__(self, initializer_config):
+        super().__init__(initializer_config)
+        self.resolution = initializer_config.get('resolution', 100)
+        self.radius = initializer_config.get('radius', [50, 100, 150])
+
+    def build_model(self, model):
+        num_background_points = self.resolution**2
+        xyzs = []
+        scales = []
+        opacities = []
+        rgbs = []
+        for radius in self.radius:
+            num_background_points = num_background_points
+            sphere_xyz = np.array(fibonacci_sphere(num_background_points))
+            xyz = sphere_xyz * radius
+            dist = euclidean_distance(xyz[0], xyz[1])
+            dist = math.log(dist)
+            scale = np.ones_like(xyz) * dist
+
+            opacity = inverse_sigmoid(0.01 * np.ones((xyz.shape[0], 1)))
+            rgb = np.ones((xyz.shape[0], 3))
+            rgbs.append(rgb)
+            xyzs.append(xyz)
+            scales.append(scale)
+            opacities.append(opacity)
+        xyzs = np.concatenate(xyzs, axis=0)
+        rgbs = np.concatenate(rgbs, axis=0)
+        scales = np.concatenate(scales, axis=0)
+        opacities = np.concatenate(opacities, axis=0)
+        try:
+            model.create_from_attribute(xyz=xyzs, rgb=rgbs, scale=scales, opacity=opacities)
         except Exception as e:
             print(f"Failed to update point cloud: {e}")
             raise

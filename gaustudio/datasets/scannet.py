@@ -20,10 +20,9 @@ class ScannetDatasetBase:
         self.intrinsic_path = self.source_path / 'intrinsic' /  'intrinsic_color.txt'
         self.image_filenames = sorted([os.path.join(self.image_dir, f) for f in os.listdir(self.image_dir)],
                                       key=lambda fn: int(os.path.splitext(os.path.basename(fn))[0]))
-        self.image_filenames = self.image_filenames[::10]
+        self.image_filenames = self.image_filenames
         
         self._initialize()
-        self.ply_path = None
         
     def _validate_config(self, config: Dict):
         required_keys = ['source_path']

@@ -64,7 +64,7 @@ class WaymoDatasetBase:
         with open(scenario_path, 'rb') as f:
             scenario_data = pickle.load(f)
         self._initialize(scenario_data)
-        self.ply_path = None
+
     def _validate_config(self, config: Dict):
         required_keys = ['source_path']
         for k in required_keys:

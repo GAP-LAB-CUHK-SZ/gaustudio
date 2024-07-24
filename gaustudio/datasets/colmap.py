@@ -23,9 +23,10 @@ class ColmapDatasetBase:
         self.white_background = config.get('white_background', False)
         self.images_dir = self.path / config.get('images', 'images')
         self.masks_dir = self.path / config.get('masks', 'masks')
+        self.sparse_dir = self.path / config.get('sparse', 'sparse')
+        self.resolution = config.get('resolution', 1)
         self.w_mask = config.get('w_mask', False)
         self.eval = config.get('eval', False)
-        self.ply_path = config.get('ply_path', os.path.join(self.path, "sparse/0/points3D.ply"))
         self._initialize()
     
     def _validate_config(self, config: Dict):
@@ -40,7 +41,7 @@ class ColmapDatasetBase:
     def _initialize(self):
         scene_dir = os.path.join(self.path, "sparse", "0")
         if not os.path.exists(scene_dir):
-            scene_dir = os.path.join(self.path, "sparse")
+            scene_dir = os.path.join(self.path, self.sparse_dir)
         try:
             cameras_extrinsic_file = os.path.join(scene_dir, "images.bin")
             cameras_intrinsic_file = os.path.join(scene_dir, "cameras.bin")
@@ -120,6 +121,8 @@ class ColmapDatasetBase:
                 _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
                                           image_width=width, image_height=height, bg_image=bg_image_tensor,
                                           principal_point_ndc=np.array([cx / width, cy /height]))
+                if self.resolution > 1:
+                    _camera.downsample_scale(self.resolution)
             all_cameras_unsorted.append(_camera)
 
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

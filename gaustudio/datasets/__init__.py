@@ -216,16 +216,21 @@ class Camera:
         self.T = extrinsics[:3, 3]
         self._setup()
 
+    def downsample_scale(self, scale):
+        resolution = round(self.image_width/scale), round(self.image_height/scale)
+        self.downsample(resolution)
+        return self
+    
     def downsample(self, resolution):
         if self.image is not None:
             resized_image_rgb = resizeTorch(self.image, resolution)
-            
-            gt_image = resized_image_rgb[..., :3]
-            self.image = gt_image.clamp(0.0, 1.0)
-            self.image_height, self.image_width, _ = gt_image.shape
-            # TODO: Add mask, normal, depth resize, modify principle point
-        else:
-            self.image_height, self.image_width = resolution
+            self.image = resized_image_rgb[..., :3].clamp(0.0, 1.0)
+        if self.bg_image is not None:
+            resized_bg_image_rgb = resizeTorch(self.bg_image, resolution)
+            self.bg_image = resized_bg_image_rgb[..., :3].clamp(0.0, 1.0)
+        if self.depth is not None:
+            self.depth = resizeDepthTorch(self.depth, resolution)
+        self.image_width, self.image_height = resolution
         return self
     
     def depth2point(self, depth=None, coordinate='camera'):
@@ -303,18 +308,6 @@ class Camera:
         
         return normal.squeeze(0).permute(1, 2, 0)
 
-    def downsample_scale(self, scale):
-        resolution = round(self.image_width/scale), round(self.image_height/scale)
-        if self.image is not None:
-            resized_image_rgb = resizeTorch(self.image, resolution)
-            self.image = resized_image_rgb[..., :3].clamp(0.0, 1.0)
-        if self.bg_image is not None:
-            resized_bg_image_rgb = resizeTorch(self.bg_image, resolution)
-            self.bg_image = resized_bg_image_rgb[..., :3].clamp(0.0, 1.0)
-        if self.depth is not None:
-            self.depth = resizeDepthTorch(self.depth, resolution)
-        self.image_width, self.image_height = resolution
-        return self
 
 def register(name):
     def decorator(cls):

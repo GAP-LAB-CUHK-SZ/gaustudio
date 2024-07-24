@@ -58,7 +58,7 @@ class ColmapInitializer(BaseInitializer):
             os.remove(self.db_path)
         
         pycolmap.extract_features(image_path=self.images_dir, database_path=self.db_path)
-        pycolmap.match_sequential(self.db_path)
+        pycolmap.match_exhaustive(self.db_path)
         
         db = COLMAPDatabase.connect(self.db_path)
         images = list(db.execute('select * from images'))

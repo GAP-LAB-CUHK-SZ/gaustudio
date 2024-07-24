@@ -21,7 +21,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
-    parser.add_argument('--camera', '-c', default=None, help='path to cameras.json')
     parser.add_argument('--model', '-m', default=None, help='path to the model')
     parser.add_argument('--source_path', '-s', required=True, help='path to the dataset')
     parser.add_argument('--flythrough', action='store_true', help='render a flythrough path')
@@ -38,7 +37,6 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import models, datasets, renderers
-    from gaustudio.utils.graphics_utils import depth2point
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -65,24 +63,23 @@ def main():
         print("Model not found at {}".format(model_path))
     pcd.to("cuda")
     
-    if args.camera is None:
-        args.camera = os.path.join(model_path, "cameras.json")
-    if args.camera is not None and os.path.exists(args.camera):
-        print("Loading camera data from {}".format(args.camera))
-        with open(args.camera, 'r') as f:
+    if args.source_path is None:
+        args.source_path = os.path.join(model_path, "cameras.json")
+
+    if args.source_path.endswith(".json"):
+        print("Loading camera data from {}".format(args.source_path))
+        with open(args.source_path, 'r') as f:
             camera_data = json.load(f)
         cameras = []
         for camera_json in camera_data:
             camera = JSON_to_camera(camera_json, "cuda")
             cameras.append(camera)
-    elif args.source_path is not None:
+    else:
         dataset_config = { "name":"colmap", "source_path": args.source_path, 
                           "images":"images", "resolution":-1, "data_device":"cuda", "eval": False}
         dataset = datasets.make(dataset_config)
         cameras = dataset.all_cameras
-    else:
-        exit("Camera data not found at {}".format(args.camera))
-    
+
     if args.flythrough:
         # Validate camera paths and optionally discard outliers
         window_size_ratio = 0.1
@@ -109,9 +106,6 @@ def main():
         angles_per_frame = 1
         cameras = upsample_cameras_velocity(cameras, meters_per_frame=meters_per_frame,
                                             angles_per_frame=angles_per_frame)
-
-    else:
-        assert "Camera data not found at {}".format(args.camera)
 
     bg_color = [1,1,1] if args.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")

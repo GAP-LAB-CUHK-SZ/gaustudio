@@ -22,8 +22,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
-    parser.add_argument('--camera', '-c', default=None, help='path to cameras.json')
     parser.add_argument('--model', '-m', default=None, help='path to the model')
+    parser.add_argument('--source_path', '-s', help='path to the dataset')
     parser.add_argument('--output-dir', '-o', default=None, help='path to the output dir')
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')
     parser.add_argument('--resolution', default=2, type=int, help='downscale resolution')
@@ -67,19 +67,23 @@ def main():
         print("Model not found at {}".format(model_path))
     pcd.to("cuda")
     
-    if args.camera is None:
-        args.camera = os.path.join(model_path, "cameras.json")
-    if os.path.exists(args.camera):
-        print("Loading camera data from {}".format(args.camera))
-        with open(args.camera, 'r') as f:
+    if args.source_path is None:
+        args.source_path = os.path.join(os.path.dirname(model_path), "cameras.json")
+
+    if args.source_path.endswith(".json"):
+        print("Loading camera data from {}".format(args.source_path))
+        with open(args.source_path, 'r') as f:
             camera_data = json.load(f)
         cameras = []
         for camera_json in camera_data:
             camera = JSON_to_camera(camera_json, "cuda")
             cameras.append(camera)
-        vdb_volume = vdbfusion.VDBVolume(voxel_size=0.01, sdf_trunc=0.04, space_carving=False) # For Scene
     else:
-        assert "Camera data not found at {}".format(args.camera)
+        dataset_config = { "name":"colmap", "source_path": args.source_path, 
+                          "images":"images", "resolution":-1, "data_device":"cuda", "eval": False}
+        dataset = datasets.make(dataset_config)
+        cameras = dataset.all_cameras
+    vdb_volume = vdbfusion.VDBVolume(voxel_size=0.01, sdf_trunc=0.04, space_carving=False) # For Scene
 
     bg_color = [1,1,1] if args.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -95,6 +99,7 @@ def main():
             render_pkg = renderer.render(camera, pcd)
         rendering = render_pkg["render"]
         rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
+        # rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
         rendered_depth = render_pkg["rendered_median_depth"][0]
         invalid_mask = rendered_final_opacity < 0.5
 

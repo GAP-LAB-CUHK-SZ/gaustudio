@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--config', help='path to config file', default='vanilla')
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
     parser.add_argument('--model', '-m', default=None, help='path to the model')
-    parser.add_argument('--source_path', '-s', required=True, help='path to the dataset')
+    parser.add_argument('--source_path', '-s', help='path to the dataset')
     parser.add_argument('--flythrough', action='store_true', help='render a flythrough path')
     parser.add_argument('--output-dir', '-o', default=None, help='path to the output dir')
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')
@@ -64,7 +64,7 @@ def main():
     pcd.to("cuda")
     
     if args.source_path is None:
-        args.source_path = os.path.join(model_path, "cameras.json")
+        args.source_path = os.path.join(os.path.dirname(model_path), "cameras.json")
 
     if args.source_path.endswith(".json"):
         print("Loading camera data from {}".format(args.source_path))

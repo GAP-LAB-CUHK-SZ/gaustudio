@@ -23,7 +23,6 @@ class ScannetDatasetBase:
         self.image_filenames = self.image_filenames[::10]
         
         self._initialize()
-        self.ply_path = None
         
     def _validate_config(self, config: Dict):
         required_keys = ['source_path']

@@ -22,7 +22,6 @@ class NSVFDatasetBase:
                 self.image_filenames.append(os.path.join(self.image_dir, f))
         self.image_filenames = sorted(self.image_filenames, key=lambda fn: os.path.splitext(os.path.basename(fn))[0].split('_')[-1])
         self._initialize()
-        self.ply_path = None
         
     def _validate_config(self, config: Dict):
         required_keys = ['source_path']

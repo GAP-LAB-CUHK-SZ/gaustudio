@@ -22,7 +22,6 @@ class MobileBrickDatasetBase:
         self.w_mask = config.get('w_mask', False)
         
         self._initialize()
-        self.ply_path = None
         
     def _validate_config(self, config: Dict):
         required_keys = ['source_path']

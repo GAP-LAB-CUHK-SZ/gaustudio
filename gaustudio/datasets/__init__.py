@@ -177,6 +177,24 @@ class Camera:
 
         return self
     
+    def update_intrinsics(self, intrinsics, image_width, image_height):
+        fx = intrinsics[0, 0]
+        fy = intrinsics[1, 1]
+        
+        self.FoVx = 2.0 * np.arctan(image_width / (2.0 * fx))
+        self.FoVy = 2.0 * np.arctan(image_height / (2.0 * fy))
+        
+        self.image_width = image_width
+        self.image_height = image_height
+    
+    @property
+    def fx(self):
+        return self.intrinsics[0, 0]
+    
+    @property
+    def fy(self):
+        return self.intrinsics[1, 1]
+    
     @property
     def extrinsics(self):
         return self.world_view_transform.transpose(0,1).contiguous() # cam2world
@@ -190,7 +208,7 @@ class Camera:
         return torch.tensor([[focal_x, 0, self.image_width * self.principal_point_ndc[0]], 
                              [0, focal_y, self.image_height * self.principal_point_ndc[1]], 
                              [0, 0, 1]]).float()
-     
+        
     @extrinsics.setter
     def extrinsics(self, extrinsics):
         """Sets the extrinsic parameters of the camera"""

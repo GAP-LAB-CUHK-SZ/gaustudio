@@ -107,19 +107,19 @@ class VanillaPointCloud(BasePointCloud):
     
     @property
     def get_opacity(self):
-        return self._opacity
+        return self.get_attribute("opacity")
     
     @property
     def get_scaling(self):
-        return self._scale
+        return self.get_attribute("scale")
     
     @property
     def get_rotation(self):
-        return self._rot
+        return self.get_attribute("rot")
     
     @property
     def get_xyz(self):
-        return self._xyz
+        return self.get_attribute("xyz")
     
     @property
     def get_num_points(self):
@@ -127,11 +127,11 @@ class VanillaPointCloud(BasePointCloud):
     
     @property
     def get_features_dc(self):
-        return self._f_dc.reshape(self.num_points, -1, 3)
+        return self.get_attribute("f_dc").reshape(self.num_points, -1, 3)
     
     @property
     def get_features_rest(self):
-        return self._f_rest.reshape(self.num_points, -1, 3)
+        return self.get_attribute("f_rest").reshape(self.num_points, -1, 3)
     
     def calculate_dist2(self):
         try:

@@ -1,8 +1,145 @@
 import json
 import copy 
 import torch
+import math
 from gaustudio.utils.cameras_utils import JSON_to_camera
 from gaustudio.utils.pose_utils import get_interpolated_poses, quaternion_from_matrix, quaternion_matrix
+from gaustudio import datasets
+
+def length(x, eps=1e-20):
+    """length of an array (along the last dim).
+
+    Args:
+        x (Union[Tensor, ndarray]): x, [..., C]
+        eps (float, optional): eps. Defaults to 1e-20.
+
+    Returns:
+        Union[Tensor, ndarray]: length, [..., 1]
+    """
+    if isinstance(x, np.ndarray):
+        return np.sqrt(np.maximum(np.sum(x * x, axis=-1, keepdims=True), eps))
+    else:
+        return torch.sqrt(torch.clamp(dot(x, x), min=eps))
+
+def safe_normalize(x, eps=1e-20):
+    return x / length(x, eps)
+
+def look_at(campos, target, opengl=True):
+    """construct pose rotation matrix by look-at
+
+    Args:
+        campos (np.ndarray): camera position, float [3]
+        target (np.ndarray): look at target, float [3]
+        opengl (bool, optional): whether use opengl camera convention (forward direction is target --> camera). Defaults to True.
+
+    Returns:
+        np.ndarray: the camera pose rotation matrix, float [3, 3], normalized.
+    """
+    if not opengl:
+        # forward is camera --> target
+        forward_vector = safe_normalize(target - campos)
+    else:
+        # forward is target --> camera
+        forward_vector = safe_normalize(campos - target)
+    
+    # Default up vector
+    up_vector = np.array([0, 1, 0], dtype=np.float32)
+
+    # Calculate right_vector and check for parallelism
+    right_vector = np.cross(up_vector, forward_vector)
+    if np.linalg.norm(right_vector) < 1e-6:  # check for almost zero cross product
+        up_vector = np.array([1, 0, 0], dtype=np.float32)  # Use a different up vector
+        right_vector = np.cross(up_vector, forward_vector)
+    
+    right_vector = safe_normalize(right_vector)
+    up_vector = safe_normalize(np.cross(forward_vector, right_vector))
+    
+    R = np.stack([right_vector, up_vector, forward_vector], axis=1)
+    return R
+
+def orbit_camera(elevation, azimuth, radius=1, is_degree=True, target=None, opengl=True):
+    """construct a camera pose matrix orbiting a target with elevation & azimuth angle.
+
+    Args:
+        elevation (float): elevation in (-90, 90), from +y to -y is (-90, 90)
+        azimuth (float): azimuth in (-180, 180), from +z to +x is (0, 90)
+        radius (int, optional): camera radius. Defaults to 1.
+        is_degree (bool, optional): if the angles are in degree. Defaults to True.
+        target (np.ndarray, optional): look at target position. Defaults to None.
+        opengl (bool, optional): whether to use OpenGL camera convention. Defaults to True.
+
+    Returns:
+        np.ndarray: the camera pose matrix, float [4, 4]
+    """
+    
+    if is_degree:
+        elevation = np.deg2rad(elevation)
+        azimuth = np.deg2rad(azimuth)
+    x = radius * np.cos(elevation) * np.sin(azimuth)
+    y = radius * np.sin(elevation)
+    z = radius * np.cos(elevation) * np.cos(azimuth)
+    if target is None:
+        target = np.zeros([3], dtype=np.float32)
+    campos = np.array([x, y, z]) + target  # [3]
+    T = np.eye(4, dtype=np.float32)
+    T[:3, :3] = look_at(campos, target, opengl)
+    T[:3, 3] = campos
+    return T
+
+def get_path_from_orbit(cam_center, cam_radius, elevation=0, num_cam=36):
+    azimuth = np.arange(0, 360, 360//num_cam, dtype=np.int32)
+    cameras = []
+    for _id, azi in enumerate(azimuth):
+        cam_pose = orbit_camera(elevation, azi, radius=cam_radius, target=cam_center, opengl=False)
+        # cam_pose[:3, 1] *= -1 # invert up & forward direction
+        
+        cam_pose = np.linalg.inv(cam_pose) # invert camera pose
+        R, T = cam_pose[:3, :3], cam_pose[:3, 3]
+        
+        _camera = datasets.Camera(R=R, T=T, FoVy=math.radians(49.1), FoVx=math.radians(49.1), image_name=f"{_id}", 
+                                  image_width=1024, image_height=1024)
+        cameras.append(_camera)
+    return cameras
+
+def get_path_from_cubemap(cam_center, cam_radius):
+    """
+    Generate six cubemap camera views (front, back, top, bottom, left, right) around a central point.
+
+    Args:
+        cam_center (np.ndarray): The center point the cameras are looking at, shape (3,).
+        cam_radius (float): The radius of the cameras from the center point.
+    
+    Returns:
+        List[datasets.Camera]: A list of camera objects for the six views.
+    """
+    views = {
+        'front': np.array([0, 0, cam_radius]),
+        'back': np.array([0, 0, -cam_radius]),
+        'left': np.array([-cam_radius, 0, 0]),
+        'right': np.array([cam_radius, 0, 0]),
+        'top': np.array([0, cam_radius, 0]),
+        'bottom': np.array([0, -cam_radius, 0])
+    }
+    
+    cameras = []
+    for view_name, cam_offset in views.items():
+        campos = cam_center + cam_offset
+        R = look_at(campos, cam_center, opengl=False)  # Obtain the rotation matrix using look_at
+        T = np.eye(4, dtype=np.float32)
+        T[:3, :3] = R
+        T[:3, 3] = campos
+        T[:3, 1] *= -1  # Invert up direction to align with expected conventions
+        
+        inv_T = np.linalg.inv(T)  # The final view matrix
+        R, cam_pos = inv_T[:3, :3], inv_T[:3, 3]
+
+        _camera = datasets.Camera(R=R, T=cam_pos, FoVy=math.radians(49.1), FoVx=math.radians(49.1), image_name=view_name, 
+                                  image_width=1024, image_height=1024)
+        cameras.append(_camera)
+        
+    return cameras
+
+
 
 def get_path_from_json(json_path):
     print("Loading camera data from {}".format(json_path))

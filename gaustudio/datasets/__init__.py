@@ -133,6 +133,7 @@ class Camera:
 
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
+    projection_matrix: torch.tensor = None
     camera_center: torch.tensor = None    
     principal_point_ndc: np.array = np.array([0.5, 0.5])
     
@@ -155,7 +156,7 @@ class Camera:
                                                      principal_point_ndc=self.principal_point_ndc).transpose(0,1)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         
-        if self.image_path is not None:
+        if self.image_path is not None and self.image is None:
             self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
@@ -308,6 +309,20 @@ class Camera:
         
         return normal.squeeze(0).permute(1, 2, 0)
 
+    def normal2worldnormal(self, normal=None):
+        if normal is None:
+            normal = self.normal
+        if normal is None:
+            raise ValueError("Normal is not available.")
+        normal = normal @ self.extrinsics[:3, :3].inverse().t()
+        return normal
+    
+    def worldnormal2normal(self, normal):
+        if normal is None:
+            raise ValueError("Normal is not available.")
+        normal = normal @ self.extrinsics[:3, :3].t()
+        return normal
+        
 
 def register(name):
     def decorator(cls):

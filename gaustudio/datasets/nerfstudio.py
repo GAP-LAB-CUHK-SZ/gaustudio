@@ -8,6 +8,7 @@ from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
 from typing import List, Dict 
 from pathlib import Path
 import math
+import torch
 
 class NerfStudioDatasetBase:
     def __init__(self, config: Dict):
@@ -38,7 +39,12 @@ class NerfStudioDatasetBase:
         
             image_name = f"{_frame['file_path']}"
             image_path = self.image_path / image_name
-            
+            if 'depth_file_path' in _frame:
+                depth_path = self.image_path / f"{_frame['depth_file_path']}"
+                depth_tensor = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED) / 1000
+                depth_tensor = torch.from_numpy(depth_tensor).float()
+            else:
+                depth_tensor = None
             c2w = np.array(_frame['transform_matrix'])
             c2w[:,1:3] *= -1
             
@@ -47,7 +53,7 @@ class NerfStudioDatasetBase:
             T = extrinsics[:3, 3]
             
             _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
-                                      image_width=width, image_height=height,
+                                      image_width=width, image_height=height, depth=depth_tensor,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

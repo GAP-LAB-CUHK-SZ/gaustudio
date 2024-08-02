@@ -111,7 +111,7 @@ class ColmapDatasetBase:
                 bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
                 _mask_tensor = torch.from_numpy(mask)
                 _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), 
-                                          image_width=width, image_height=height, image=_image_tensor, 
+                                          image_width=width, image_height=height, image=_image_tensor, image_path=image_path, 
                                           bg_image=bg_image_tensor, mask=_mask_tensor)
             else:
                 if self.white_background:

@@ -12,8 +12,8 @@ class PolycamDatasetBase:
     def __init__(self, config: Dict):
         self.source_path = Path(config['source_path'])
         
-        self.image_dir = self.source_path / "keyframes" / "images"
-        self.cameras_dir = self.source_path /  "keyframes" / "cameras"
+        self.image_dir = self.source_path / "keyframes" / "corrected_images"
+        self.cameras_dir = self.source_path /  "keyframes" / "corrected_cameras"
         self.image_filenames = sorted([os.path.join(self.image_dir, f) for f in os.listdir(self.image_dir)],
                                       key=lambda fn: int(os.path.splitext(os.path.basename(fn))[0]))
 

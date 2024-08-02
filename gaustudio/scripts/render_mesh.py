@@ -27,9 +27,16 @@ from pytorch3d.renderer import (
     MeshRendererWithFragments, 
     MeshRasterizer,  
     SoftPhongShader,
+    hard_rgb_blend,
     TexturesAtlas,
 )
 
+from pytorch3d.renderer.mesh.shader import ShaderBase
+class VertexColorShader(ShaderBase):
+    def forward(self, fragments, meshes, **kwargs) -> torch.Tensor:
+        blend_params = kwargs.get("blend_params", self.blend_params)
+        texels = meshes.sample_textures(fragments)
+        return hard_rgb_blend(texels, fragments, blend_params)
 
 def np_depth_to_colormap(depth):
     """ depth: [H, W] """
@@ -65,8 +72,9 @@ def main():
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
     parser.add_argument('--camera', '-c', default=None, help='path to cameras.json')
     parser.add_argument('--mesh', '-m', default=None, help='path to the mesh')
-    parser.add_argument('--source_path', '-s', required=True, help='path to the dataset')
-    parser.add_argument('--output-dir', '-o', required=True, help='path to the output dir')
+    parser.add_argument('--source_path', '-s', help='path to the dataset')
+    parser.add_argument('--output-dir', '-o',  help='path to the output dir')
+    parser.add_argmuent('--color', action='store_true', help='render color')
     args, extras = parser.parse_known_args()
     
     # set CUDA_VISIBLE_DEVICES then import pytorch-lightning
@@ -78,19 +86,6 @@ def main():
     from gaustudio import datasets
     from gaustudio.utils.cameras_utils import JSON_to_camera
 
-    if args.camera is not None and os.path.exists(args.camera):
-        print("Loading camera data from {}".format(args.camera))
-        with open(args.camera, 'r') as f:
-            camera_data = json.load(f)
-        cameras = []
-        for camera_json in camera_data:
-            camera = JSON_to_camera(camera_json, "cuda")
-            cameras.append(camera)
-    else:
-        dataset_config = { "name":"colmap", "source_path": args.source_path, "images":"images", "resolution":-1, "data_device":"cuda", "eval": False}
-        dataset = datasets.make(dataset_config)
-        cameras = dataset.all_cameras
-    
     # Load mesh
     if args.mesh.endswith('.obj'):
         mesh = load_objs_as_meshes([args.mesh]).to("cuda")
@@ -99,8 +94,26 @@ def main():
         mesh = Meshes(verts=[verts], faces=[faces]).to("cuda")
     else:
         exit("Mesh file must be .obj or .ply")
+    mesh_bbox = mesh.get_bounding_boxes()[0]
+    mesh_center = mesh_bbox.mean(dim=1).cpu().numpy()
+    
+    if args.camera is not None and os.path.exists(args.camera):
+        print("Loading camera data from {}".format(args.camera))
+        with open(args.camera, 'r') as f:
+            camera_data = json.load(f)
+        cameras = []
+        for camera_json in camera_data:
+            camera = JSON_to_camera(camera_json, "cuda")
+            cameras.append(camera)
+    elif args.source_path is not None:
+        dataset_config = { "name":"colmap", "source_path": args.source_path, "images":"images", "resolution":-1, "data_device":"cuda", "eval": False}
+        dataset = datasets.make(dataset_config)
+        cameras = dataset.all_cameras
+    else:
+        from gaustudio.cameras.camera_paths import get_path_from_orbit
+        cameras = get_path_from_orbit(mesh_center, 3, elevation=30)
 
-    work_dir = args.output_dir
+    work_dir = args.output_dir if args.output_dir is not None else os.path.dirname(args.mesh)
     render_path = os.path.join(work_dir, "color")
     normal_path = os.path.join(work_dir, "normal")
     mask_path = os.path.join(work_dir, "mask")
@@ -140,7 +153,10 @@ def main():
             cameras=view,
             raster_settings=raster_settings
         )
-        shader = pytorch3d.renderer.SoftSilhouetteShader()
+        if args.color:
+            shader = VertexColorShader()
+        else:
+            shader = pytorch3d.renderer.SoftSilhouetteShader()
         renderer = MeshRendererWithFragments(
             rasterizer = rasterizer,
             shader=shader
@@ -148,10 +164,13 @@ def main():
         images, fragments = renderer(mesh)
         
         id_str = camera.image_name
-        try:
-            torchvision.utils.save_image(camera.image.permute(2, 0, 1), os.path.join(render_path, f"{_id}.png"))        
-        except:
-            pass
+        
+        if color:
+            _image = images[0, ..., :3]
+            _mask = images[0, ..., 3]
+            _image[_mask < 1] = 0
+            torchvision.utils.save_image(_image.permute(2, 0, 1), os.path.join(render_path, f"{_id}.png"))        
+
         mask = images[0, ..., 3].cpu().numpy() > 0
         cv2.imwrite(os.path.join(mask_path, f"{_id}.png"), (mask * 255).astype(np.uint8))
 
@@ -180,6 +199,32 @@ def main():
         normal = cv2.cvtColor(((normal+1)/2*255).astype(np.uint8), cv2.COLOR_RGB2BGR)
         cv2.imwrite(os.path.join(normal_path, f"{_id}.png"), normal)
         
+        # Save camera infromation
+        cam_path = os.path.join(render_path, f"{_id}.cam")
+        K = camera.intrinsics.cpu().numpy()
+        fx = K[0, 0]
+        fy = K[1, 1]
+        paspect = fy / fx
+        width, height = camera.image_width, camera.image_height
+        dim_aspect = width / height
+        img_aspect = dim_aspect * paspect
+        if img_aspect < 1.0:
+            flen = fy / height
+        else:
+            flen = fx / width
+        ppx = K[0, 2] / width
+        ppy = K[1, 2] / height
+
+        P = camera.extrinsics
+        P = P.cpu().numpy()
+        with open(cam_path, 'w') as f:
+            s1, s2 = '', ''
+            for i in range(3):
+                for j in range(3):
+                    s1 += str(P[i][j]) + ' '
+                s2 += str(P[i][3]) + ' '
+            f.write(s2 + s1[:-1] + '\n')
+            f.write(str(flen) + ' 0 0 ' + str(paspect) + ' ' + str(ppx) + ' ' + str(ppy) + '\n')
         _id += 1
     
 

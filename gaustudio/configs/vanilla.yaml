@@ -26,3 +26,21 @@ renderer:
   convert_SHs_python: False
   compute_cov3D_python: False
   debug: False
+
+optimizer:
+  name: general
+  optimizer_name: AdamW
+  args:
+    lr: 0.0
+    eps: 1.e-15
+  params:
+    xyz:
+      lr: 0.00016
+    opacity:
+      lr: 0.05
+    f_dc:
+      lr: 0.0025
+    scale:
+      lr: 0.005
+    rot:
+      lr: 0.001

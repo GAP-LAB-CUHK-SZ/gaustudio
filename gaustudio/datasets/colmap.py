@@ -109,7 +109,7 @@ class ColmapDatasetBase:
                 bg_image = cv2.bitwise_and(_image, _image, mask=bg_mask)
                 _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
                 bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
-                _mask_tensor = torch.from_numpy(mask)
+                _mask_tensor = torch.from_numpy(mask) / 255
                 _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), 
                                           image_width=width, image_height=height, image=_image_tensor, image_path=image_path, 
                                           bg_image=bg_image_tensor, mask=_mask_tensor)
@@ -128,6 +128,8 @@ class ColmapDatasetBase:
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
+        self.cameras_center = self.nerf_normalization["translate"]
+        self.cameras_min_extent = self.nerf_normalization["min_radius"]
 
     def export(self, save_path):
         json_cams = []

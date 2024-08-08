@@ -19,13 +19,16 @@ from copy import deepcopy
 try:
     from mini_dust3r.api import OptimizedResult, inferece_dust3r, log_optimized_result
     from mini_dust3r.model import AsymmetricCroCo3DStereo
+    dust3r_installed = True
 except:
-    print("Please install mini-dust3r to use dust3r initializer.")
+    dust3r_installed = False
 
 @initializers.register('dust3r')
 class Dust3rInitializer(BaseInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
+        if not dust3r_installed:
+            raise ImportError("Please install mini_dust3r to use Dust3rInitializer.")
         self.ws_dir = self.initializer_config.get('workspace_dir')
         if self.ws_dir is None:
             self.ws_dir = tempfile.mkdtemp()

@@ -4,12 +4,14 @@ import torch
 import trimesh
 from tqdm import tqdm
 import tempfile
-import skimage.measure
 from copy import deepcopy
 from gaustudio.pipelines.initializers.base import BaseInitializer
 from gaustudio.pipelines import initializers
-import mcubes
-
+try:
+    import mcubes
+    mcubes_available = True
+except:
+    mcubes_available = False
 @initializers.register('VisualHull')
 class VisualHullInitializer(BaseInitializer):
     def __init__(self, initializer_config):
@@ -18,37 +20,8 @@ class VisualHullInitializer(BaseInitializer):
         if self.ws_dir is None:
             self.ws_dir = tempfile.mkdtemp()
             print(f"No workspace directory provided. Using temporary directory: {self.ws_dir}")
-
-        os.makedirs(self.ws_dir, exist_ok=True)
-        self.resolution = self.initializer_config.get('resolution', 128)
-        self.threshold = self.initializer_config.get('threshold', 0.5)
-
-    def __call__(self, model, dataset, overwrite=False):
-        if not os.path.exists(f'{self.ws_dir}/visual_hull.ply') or overwrite:
-            self.construct_visual_hull(dataset)
-        model = self.build_model(model)
-        return model
-
-    import os
-import numpy as np
-import torch
-import trimesh
-from tqdm import tqdm
-import tempfile
-import skimage.measure
-from copy import deepcopy
-from gaustudio.pipelines.initializers.base import BaseInitializer
-from gaustudio.pipelines import initializers
-
-@initializers.register('VisualHull')
-class VisualHullInitializer(BaseInitializer):
-    def __init__(self, initializer_config):
-        super().__init__(initializer_config)
-        self.ws_dir = self.initializer_config.get('workspace_dir')
-        if self.ws_dir is None:
-            self.ws_dir = tempfile.mkdtemp()
-            print(f"No workspace directory provided. Using temporary directory: {self.ws_dir}")
-
+        if not mucbes_available:
+            raise ImportError("PyMCubes is not installed. Please install PyMCubes to use VisualHullInitializer.")
         os.makedirs(self.ws_dir, exist_ok=True)
         self.resolution = self.initializer_config.get('resolution', 128)
         self.threshold = self.initializer_config.get('threshold', 0.5)
@@ -78,17 +51,21 @@ class VisualHullInitializer(BaseInitializer):
         print(f"Visual hull mesh saved to {self.ws_dir}/voxel_points.ply")
 
         points_world = torch.from_numpy(points_world).float().cuda()
-        points_weights = torch.zeros((points_world.shape[0])).cuda()
+        filled = torch.ones((points_world.shape[0])).cuda().bool()
 
-        for camera in tqdm(dataset[::3], total=len(dataset) // 3):
+        for camera in tqdm(dataset[::10]):
             camera = deepcopy(camera)
             camera = camera.to('cuda')
-            inside_view = camera.insideView(points_world, camera.mask)
-            points_weights += inside_view
-        points_weights = points_weights > len(dataset) * 0.1
+
+            inside_view = camera.insideView(points_world)
+            inside_view_idx = torch.where(inside_view)[0]
+            inside_mask = camera.insideView(points_world[inside_view_idx], camera.mask)
+            camera_filled = torch.zeros((points_world.shape[0])).cuda().bool()
+            camera_filled[inside_view_idx] = inside_mask
+            filled = filled & camera_filled
         
-        trimmed_points = points_world[points_weights].cpu().numpy()
-        volume = points_weights.reshape(self.resolution, self.resolution, self.resolution).cpu().numpy()
+        trimmed_points = points_world[filled].cpu().numpy()
+        volume = filled.reshape(self.resolution, self.resolution, self.resolution).cpu().numpy()
         pcd_trimmed = trimesh.PointCloud(vertices=trimmed_points)
         pcd_trimmed.export(os.path.join(self.ws_dir, 'trim_points.ply'))
         print(f"Trimmed points saved to {self.ws_dir}/trim_points.ply")

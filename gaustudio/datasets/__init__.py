@@ -234,6 +234,45 @@ class Camera:
         self.image_width, self.image_height = resolution
         return self
     
+    def insideView(self, world_xyz, mask=None):
+        # Use the camera's mask if none is provided
+        if mask is None:
+            mask = torch.ones(self.image_height, self.image_width, device=world_xyz.device)
+
+        # Homogeneous coordinates
+        world_xyz_homogeneous = torch.cat([world_xyz, torch.ones_like(world_xyz[:, :1])], dim=-1)
+        
+        # Transform to clip space
+        clip_space = world_xyz_homogeneous @ self.full_proj_transform
+
+        # Perspective division to get NDC
+        ndc = clip_space[:, :3] / clip_space[:, 3:4]
+
+        # Convert NDC to pixel coordinates
+        pixel_x = (ndc[:, 0] + 1) * 0.5 * self.image_width
+        pixel_y = (1 - ndc[:, 1]) * 0.5 * self.image_height
+
+        # Check if points are in front of the camera
+        in_front = clip_space[:, 2] > 0
+        
+        # Check if points are inside the image bounds
+        inside_image = (ndc[:, 0] >= -1) & (ndc[:, 0] <= 1) & (ndc[:, 1] >= -1) & (ndc[:, 1] <= 1)
+        
+        # Combine conditions
+        valid_points = in_front & inside_image
+        
+        # For valid points, check if they're inside the mask
+        inside_mask = torch.zeros_like(valid_points, dtype=torch.bool)
+        if valid_points.any():
+            # Only process valid points
+            valid_pixel_x = pixel_x[valid_points].long().clamp(0, self.image_width - 1)
+            valid_pixel_y = pixel_y[valid_points].long().clamp(0, self.image_height - 1)
+
+            # Sample the mask
+            inside_mask[valid_points] = mask[valid_pixel_y, valid_pixel_x].bool()
+
+        return inside_mask
+
     def depth2point(self, depth=None, coordinate='camera'):
         if depth is None:
             depth = self.depth

@@ -53,8 +53,9 @@ def getNerfppNorm(cam_info):
         avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True)
         center = avg_cam_center
         dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
-        diagonal = np.max(dist)
-        return center.flatten(), diagonal
+        max_diagonal = np.max(dist)
+        min_diagonal = np.min(dist)
+        return center.flatten(), max_diagonal, min_diagonal
 
     cam_centers = []
 
@@ -63,12 +64,12 @@ def getNerfppNorm(cam_info):
         C2W = np.linalg.inv(W2C)
         cam_centers.append(C2W[:3, 3:4])
 
-    center, diagonal = get_center_and_diag(cam_centers)
+    center, diagonal, min_diagonal = get_center_and_diag(cam_centers)
     radius = diagonal * 1.1
-
+    min_radius = min_diagonal * 1.5
     translate = -center
 
-    return {"translate": translate, "radius": radius}
+    return {"translate": translate, "radius": radius, 'min_radius': min_radius}
 
 def fov2focal(fov, pixels):
     return pixels / (2 * math.tan(fov / 2))

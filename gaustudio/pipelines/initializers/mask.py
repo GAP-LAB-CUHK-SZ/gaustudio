@@ -12,6 +12,7 @@ try:
     mcubes_available = True
 except:
     mcubes_available = False
+
 @initializers.register('VisualHull')
 class VisualHullInitializer(BaseInitializer):
     def __init__(self, initializer_config):
@@ -20,11 +21,13 @@ class VisualHullInitializer(BaseInitializer):
         if self.ws_dir is None:
             self.ws_dir = tempfile.mkdtemp()
             print(f"No workspace directory provided. Using temporary directory: {self.ws_dir}")
-        if not mucbes_available:
+        
+        if not mcubes_available:
             raise ImportError("PyMCubes is not installed. Please install PyMCubes to use VisualHullInitializer.")
         os.makedirs(self.ws_dir, exist_ok=True)
         self.resolution = self.initializer_config.get('resolution', 128)
         self.threshold = self.initializer_config.get('threshold', 0.5)
+        self.radius_scale = self.initializer_config.get('radius_scale', 1.2)
 
     def __call__(self, model, dataset, overwrite=False):
         if not os.path.exists(f'{self.ws_dir}/visual_hull.ply') or overwrite:
@@ -35,7 +38,7 @@ class VisualHullInitializer(BaseInitializer):
     def construct_visual_hull(self, dataset):
         print("Constructing visual hull...")
         translate = dataset.cameras_center
-        radius = dataset.cameras_min_extent
+        radius = dataset.cameras_min_extent * self.radius_scale
         # Create a grid of points in the normalized scene space
         x, y, z = np.meshgrid(
             np.linspace(-radius, radius, self.resolution),

@@ -127,5 +127,17 @@ def main():
     pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
     o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd)
     
+    import nksr
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    input_xyz = torch.from_numpy(surface_xyz_np).float().to(device)
+    input_normal = torch.from_numpy(surface_normal_np).float().to(device)
+
+    # Perform reconstruction
+    reconstructor = nksr.Reconstructor(device)
+    field = reconstructor.reconstruct(input_xyz, input_normal, detail_level=0.5, voxel_size=0.04)
+    mesh = field.extract_dual_mesh(mise_iter=1)
+    mesh = trimesh.Trimesh(vertices=mesh.v.cpu().numpy(), faces=mesh.f.cpu().numpy())
+    mesh.export(os.path.join(args.output_dir, "fused_mesh.ply"))
+
 if __name__ == '__main__':
     main()

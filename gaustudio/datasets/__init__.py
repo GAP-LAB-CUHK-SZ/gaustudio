@@ -8,14 +8,11 @@ import torch
 import torch.nn.functional as F
 
 def resizeTorch(tensor_image, resolution):
-    if tensor_image.ndim != 3 or tensor_image.shape[2] != 3:
-        raise ValueError("Input tensor must have shape [H, W, 3]")
-
     # Normalize to PIL range [0, 255] and convert to uint8 type if necessary
     if tensor_image.max() <= 1.0:
         tensor_image = tensor_image * 255.0
     tensor_image = tensor_image.byte()
-
+    
     # Convert tensor to PIL image for resizing
     pil_image = Image.fromarray(tensor_image.cpu().numpy())
 
@@ -165,6 +162,15 @@ class Camera:
         view_inv = torch.inverse(self.world_view_transform)
         self.camera_center = view_inv[3][:3]
     
+    def load_image(self, image_path):
+        if image_path is not None:
+            self.image_path = image_path
+            self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
+            self.image_name = os.path.basename(self.image_path).split(".")[0]
+            self.image_height, self.image_width, _ = self.image.shape
+        else:
+            print("No image path provided.")
+            
     def __repr__(self):
         return f"Camera(FoVx={self.FoVx:.2f}, FoVy={self.FoVy:.2f}, image_width={self.image_width}, image_height={self.image_height}, znear={self.znear}, zfar={self.zfar})"
         
@@ -229,8 +235,13 @@ class Camera:
         if self.bg_image is not None:
             resized_bg_image_rgb = resizeTorch(self.bg_image, resolution)
             self.bg_image = resized_bg_image_rgb[..., :3].clamp(0.0, 1.0)
+        if self.mask is not None:
+            resized_mask = resizeTorch(self.mask, resolution)
+            self.mask = resized_mask.clamp(0.0, 1.0)
         if self.depth is not None:
             self.depth = resizeDepthTorch(self.depth, resolution)
+        if self.normal is not None:
+            self.normal = resizeTorch(self.normal, resolution)
         self.image_width, self.image_height = resolution
         return self
     
@@ -386,4 +397,4 @@ def make(config):
 
 from . import colmap, waymo, polycam, scannet, mvsnet, nerf, \
                 nsvf, deepvoxels, nero, mobilebrick, neus, \
-                nerfstudio
+                nerfstudio, vanilla

@@ -17,6 +17,103 @@ def searchForMaxIteration(folder):
     saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
     return max(saved_iters)
 
+import open3d as o3d
+def build_rotation(r):
+    norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])
+    q = r / norm[:, None]
+    R = torch.zeros((q.size(0), 3, 3), device='cuda')
+    r, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+    R[:, 0, 0] = 1 - 2 * (y*y + z*z)
+    R[:, 0, 1] = 2 * (x*y - r*z)
+    R[:, 0, 2] = 2 * (x*z + r*y)
+    R[:, 1, 0] = 2 * (x*y + r*z)
+    R[:, 1, 1] = 1 - 2 * (x*x + z*z)
+    R[:, 1, 2] = 2 * (y*z - r*x)
+    R[:, 2, 0] = 2 * (x*z - r*y)
+    R[:, 2, 1] = 2 * (y*z + r*x)
+    R[:, 2, 2] = 1 - 2 * (x*x + y*y)
+    return R
+
+def build_scaling_rotation(s, r):
+    L = torch.zeros((s.shape[0], 3, 3), dtype=torch.float, device="cuda")
+    R = build_rotation(r)
+    L[:,0,0] = s[:,0]
+    L[:,1,1] = s[:,1]
+    L[:,2,2] = s[:,2]
+    L = R @ L
+    return L
+
+def create_ellipsoid_points(num_points=100):
+    phi = torch.linspace(0, 2*np.pi, num_points, device='cuda')
+    theta = torch.linspace(-np.pi/2, np.pi/2, num_points, device='cuda')
+    phi, theta = torch.meshgrid(phi, theta, indexing='ij')
+    
+    x = torch.cos(theta) * torch.cos(phi)
+    y = torch.cos(theta) * torch.sin(phi)
+    z = torch.sin(theta)
+    
+    points = torch.stack([x, y, z], dim=-1).view(-1, 3)
+    return points
+
+def process_batch(xyz, scaling, rotation, target_voxel_size=0.01):
+    batch_size = xyz.shape[0]
+    scaling = torch.cat([scaling, torch.zeros((scaling.shape[0], 1), device=scaling.device)], dim=-1)
+    
+    # Calculate the number of points for each ellipsoid based on its volume
+    volumes = scaling.prod(dim=1)
+    avg_scaling = scaling.mean(dim=1)
+    target_points = (volumes / (target_voxel_size ** 3)).ceil().clamp(min=1, max=1000).long()
+    
+    max_points = target_points.max().item()
+    base_points = create_ellipsoid_points(int(np.sqrt(max_points)))
+    
+    # Create a mask for valid points
+    mask = torch.arange(max_points, device=xyz.device).unsqueeze(0) < target_points.unsqueeze(1)
+    
+    # Repeat base points for each ellipsoid in the batch
+    points = base_points.unsqueeze(0).expand(batch_size, -1, -1)
+    
+    # Apply mask to points
+    points = points[mask].view(batch_size, -1, 3)
+    
+    # Build transformation matrices for all ellipsoids in the batch
+    transforms = build_scaling_rotation(scaling, rotation)
+    
+    # Apply transformations to all points in the batch
+    ellipsoids = torch.bmm(transforms, points.transpose(1, 2)).transpose(1, 2)
+    
+    # Add xyz offsets
+    ellipsoids += xyz.unsqueeze(1)
+    
+    # Reshape ellipsoids and colors
+    ellipsoids = ellipsoids.view(-1, 3)
+    
+    return ellipsoids
+
+def visualize_ellipsoids(xyz, scaling, rotation, normals=None, target_voxel_size=0.01, batch_size=10000):
+    all_ellipsoids = []
+    
+    for i in tqdm(range(0, xyz.shape[0], batch_size)):
+    # for i in range(0, xyz.shape[0], batch_size):
+        batch_xyz = xyz[i:i+batch_size]
+        batch_scaling = scaling[i:i+batch_size]
+        batch_rotation = rotation[i:i+batch_size]
+    
+        batch_ellipsoids = process_batch(batch_xyz, batch_scaling, batch_rotation, target_voxel_size)
+        all_ellipsoids.append(batch_ellipsoids.cpu().numpy())
+    
+    all_ellipsoids = np.concatenate(all_ellipsoids, axis=0)
+    
+    # Reshape all_ellipsoids to (x*3, 3)
+    all_ellipsoids = all_ellipsoids.reshape(-1, 3).astype(np.float32)
+    
+    # Create Open3D point cloud
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(all_ellipsoids)
+    
+    # Visualize
+    o3d.visualization.draw_geometries([pcd])
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
@@ -38,7 +135,7 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import models, renderers
-    from gaustudio.utils.cameras_utils import JSON_to_camera
+    from gaustudio.datasets.utils import JSON_to_camera
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -84,19 +181,18 @@ def main():
     scene_radius = getNerfppNorm(cameras)["radius"]
     all_ids = []
     all_normals = []
-    for camera in tqdm(cameras[::3]):
+    for camera in tqdm(cameras):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
         rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
-        rendered_depth = render_pkg["rendered_depth"][0]
-        normals = camera.depth2normal(rendered_depth, coordinate='world')        
+        rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
+        normals = camera.depth2normal(rendered_depth, coordinate='world')
         median_point_depths =  render_pkg["rendered_median_depth"][0]
         median_point_ids =  render_pkg["rendered_median_depth"][2].int()
         median_point_weights =  render_pkg["rendered_median_depth"][1]
-        valid_mask = (rendered_final_opacity > 0.5) & (median_point_weights > 0.1)
-        valid_mask = (median_point_depths < scene_radius * 1.5) & valid_mask
+        valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.5)
         valid_mask = (normals.sum(dim=-1) > -3) & valid_mask
 
         median_point_ids = median_point_ids[valid_mask]
@@ -109,32 +205,38 @@ def main():
     
     # fusion
     unique_ids, inverse_indices = torch.unique(all_ids, return_inverse=True)
+    
     num_unique_ids = len(unique_ids)
     sum_normals = torch.zeros((num_unique_ids, all_normals.size(1)), device=all_normals.device)
     counts = torch.zeros(num_unique_ids, device=all_ids.device)
     sum_normals.index_add_(0, inverse_indices, all_normals)
     counts.index_add_(0, inverse_indices, torch.ones_like(inverse_indices, dtype=torch.float))
     mean_normals = sum_normals / counts.unsqueeze(1)
+    mean_normals = torch.nn.functional.normalize(mean_normals, p=2, dim=1)
 
+    surface_xyz = pcd._xyz[unique_ids]
+    surface_scaling = pcd.get_scaling[unique_ids]
+    surface_ratation = pcd.get_rotation[unique_ids]
+    surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
+    surface_normal = mean_normals
+    visualize_ellipsoids(surface_xyz, surface_scaling, surface_ratation, surface_normal)
+    exit()
+    
     import open3d as o3d
-    surface_xyz_np = pcd._xyz[unique_ids].cpu().numpy()
-    surface_color_np = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1).cpu().numpy()
-    surface_normal_np = mean_normals.cpu().numpy()
-
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(surface_xyz_np)
     pcd.colors = o3d.utility.Vector3dVector(surface_color_np)
     pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
     o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd)
     
-    import nksr
+    from nksr import Reconstructor, utils, fields
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     input_xyz = torch.from_numpy(surface_xyz_np).float().to(device)
     input_normal = torch.from_numpy(surface_normal_np).float().to(device)
-
+    
     # Perform reconstruction
-    reconstructor = nksr.Reconstructor(device)
-    field = reconstructor.reconstruct(input_xyz, input_normal, detail_level=0.5, voxel_size=0.04)
+    reconstructor = Reconstructor(device)
+    field = reconstructor.reconstruct(input_xyz, input_normal, voxel_size=0.01)
     mesh = field.extract_dual_mesh(mise_iter=1)
     mesh = trimesh.Trimesh(vertices=mesh.v.cpu().numpy(), faces=mesh.f.cpu().numpy())
     mesh.export(os.path.join(args.output_dir, "fused_mesh.ply"))

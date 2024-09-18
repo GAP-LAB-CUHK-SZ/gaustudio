@@ -55,64 +55,85 @@ def create_ellipsoid_points(num_points=100):
     points = torch.stack([x, y, z], dim=-1).view(-1, 3)
     return points
 
-def process_batch(xyz, scaling, rotation, target_voxel_size=0.01):
+def process_batch(xyz, scaling, rotation, normals=None, target_voxel_size=0.04):
     batch_size = xyz.shape[0]
     scaling = torch.cat([scaling, torch.zeros((scaling.shape[0], 1), device=scaling.device)], dim=-1)
     
     # Calculate the number of points for each ellipsoid based on its volume
-    volumes = scaling.prod(dim=1)
-    avg_scaling = scaling.mean(dim=1)
-    target_points = (volumes / (target_voxel_size ** 3)).ceil().clamp(min=1, max=1000).long()
+    volumes = scaling[..., :2].prod(dim=1)
+    target_points = (volumes / (target_voxel_size ** 2)).ceil().clamp(min=1, max=1000).long()
     
     max_points = target_points.max().item()
-    base_points = create_ellipsoid_points(int(np.sqrt(max_points)))
+    side_points = int(np.ceil(np.sqrt(max_points)))
+    base_points = create_ellipsoid_points(side_points)
     
-    # Create a mask for valid points
-    mask = torch.arange(max_points, device=xyz.device).unsqueeze(0) < target_points.unsqueeze(1)
-    
-    # Repeat base points for each ellipsoid in the batch
+    # Create points for all ellipsoids
     points = base_points.unsqueeze(0).expand(batch_size, -1, -1)
     
+    # Create a mask for valid points
+    point_indices = torch.arange(points.shape[1], device=xyz.device)
+    mask = point_indices.unsqueeze(0) < target_points.unsqueeze(1)
+    
     # Apply mask to points
-    points = points[mask].view(batch_size, -1, 3)
+    points = points[mask]
+    
+    # Compute the number of points for each ellipsoid
+    points_per_ellipsoid = mask.sum(dim=1)
     
     # Build transformation matrices for all ellipsoids in the batch
     transforms = build_scaling_rotation(scaling, rotation)
     
     # Apply transformations to all points in the batch
-    ellipsoids = torch.bmm(transforms, points.transpose(1, 2)).transpose(1, 2)
+    ellipsoids = torch.bmm(transforms, points.T.unsqueeze(0).expand(batch_size, -1, -1))
+    ellipsoids = ellipsoids.transpose(1, 2)
     
     # Add xyz offsets
     ellipsoids += xyz.unsqueeze(1)
     
-    # Reshape ellipsoids and colors
-    ellipsoids = ellipsoids.view(-1, 3)
+    # Flatten the ellipsoids
+    ellipsoids = ellipsoids.reshape(-1, 3)
+    
+    if normals is not None:
+        # Repeat normals for each point in the ellipsoid
+        repeated_normals = torch.repeat_interleave(normals, points_per_ellipsoid, dim=0)
+        return ellipsoids, repeated_normals
     
     return ellipsoids
 
-def visualize_ellipsoids(xyz, scaling, rotation, normals=None, target_voxel_size=0.01, batch_size=10000):
+def sample_ellipsoids(xyz, scaling, rotation, normals=None, target_voxel_size=0.01, batch_size=1000):
     all_ellipsoids = []
+    all_normals = []
     
     for i in tqdm(range(0, xyz.shape[0], batch_size)):
-    # for i in range(0, xyz.shape[0], batch_size):
         batch_xyz = xyz[i:i+batch_size]
         batch_scaling = scaling[i:i+batch_size]
         batch_rotation = rotation[i:i+batch_size]
+        batch_normals = normals[i:i+batch_size] if normals is not None else None
+        
+        if batch_normals is not None:
+            batch_ellipsoids, batch_normals = process_batch(batch_xyz, batch_scaling, batch_rotation, batch_normals, target_voxel_size)
+            all_normals.append(batch_normals.cpu().numpy())
+        else:
+            batch_ellipsoids = process_batch(batch_xyz, batch_scaling, batch_rotation, target_voxel_size=target_voxel_size)
+    
     
         batch_ellipsoids = process_batch(batch_xyz, batch_scaling, batch_rotation, target_voxel_size)
+        
+        batch_ellipsoids = process_batch(batch_xyz, batch_scaling, batch_rotation, target_voxel_size)
         all_ellipsoids.append(batch_ellipsoids.cpu().numpy())
-    
-    all_ellipsoids = np.concatenate(all_ellipsoids, axis=0)
-    
-    # Reshape all_ellipsoids to (x*3, 3)
-    all_ellipsoids = all_ellipsoids.reshape(-1, 3).astype(np.float32)
+
+    all_ellipsoids = np.concatenate(all_ellipsoids, axis=0).astype(np.float32)
+    print(len(all_ellipsoids))
     
     # Create Open3D point cloud
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(all_ellipsoids)
     
-    # Visualize
-    o3d.visualization.draw_geometries([pcd])
+    if normals is not None:
+        all_normals = np.concatenate(all_normals, axis=0).astype(np.float32)
+        pcd.normals = o3d.utility.Vector3dVector(all_normals)
+    
+    return pcd
     
 def main():
     parser = argparse.ArgumentParser()
@@ -219,8 +240,10 @@ def main():
     surface_ratation = pcd.get_rotation[unique_ids]
     surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
     surface_normal = mean_normals
-    visualize_ellipsoids(surface_xyz, surface_scaling, surface_ratation, surface_normal)
-    exit()
+    
+    surface_xyz_np = surface_xyz.cpu().numpy()
+    surface_color_np = surface_color.cpu().numpy()
+    surface_normal_np = surface_normal.cpu().numpy()
     
     import open3d as o3d
     pcd = o3d.geometry.PointCloud()
@@ -236,8 +259,8 @@ def main():
     
     # Perform reconstruction
     reconstructor = Reconstructor(device)
-    field = reconstructor.reconstruct(input_xyz, input_normal, voxel_size=0.01)
-    mesh = field.extract_dual_mesh(mise_iter=1)
+    field = reconstructor.reconstruct(input_xyz, input_normal, voxel_size=0.04, detail_level=0)
+    mesh = field.extract_dual_mesh(mise_iter=2)
     mesh = trimesh.Trimesh(vertices=mesh.v.cpu().numpy(), faces=mesh.f.cpu().numpy())
     mesh.export(os.path.join(args.output_dir, "fused_mesh.ply"))
 

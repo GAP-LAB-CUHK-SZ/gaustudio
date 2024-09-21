@@ -1,6 +1,8 @@
 from gaustudio.datasets.utils import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
                                      read_extrinsics_binary, read_intrinsics_binary, \
-                                     focal2fov, getNerfppNorm, camera_to_JSON, storePly
+                                     focal2fov, getNerfppNorm, camera_to_JSON, storePly, \
+                                    compute_scale_and_shift_ls, map_depth_to_image\
+                                    read_points3D_binary, read_points3D_text
 from gaustudio import datasets
 from torch.utils.data import Dataset, DataLoader
 
@@ -48,11 +50,13 @@ class ColmapDatasetBase:
             cameras_intrinsic_file = os.path.join(scene_dir, "cameras.bin")
             cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+            points3d = read_points3D_binary(os.path.join(scene_dir, "points3D.bin"))[0]
         except:
             cameras_extrinsic_file = os.path.join(scene_dir, "images.txt")
             cameras_intrinsic_file = os.path.join(scene_dir, "cameras.txt")
             cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+            points3d = read_points3D_text(os.path.join(scene_dir, "points3D.txt"))[0]
 
         all_cameras_unsorted = []
         for key in tqdm(cam_extrinsics, total=len(cam_extrinsics), desc="Reading cameras"):
@@ -93,22 +97,55 @@ class ColmapDatasetBase:
             _image = cv2.imread(str(image_path))
             height, width, _ = _image.shape
             
-            depth_path = self.depths_dir / (os.path.basename(extr.name)[:-4] + '.png')
+            depth_path = self.depths_dir / (os.path.splitext(os.path.basename(extr.name))[0] + '.png')
+            depth_tensor = None
             if depth_path.exists():
-                depth_tensor = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED) / 1000
-                depth_tensor = torch.from_numpy(depth_tensor).float()
-            else:
-                depth_tensor = None
+                depth_image = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED) / 1000
+
+                # Compute colmap depth
+                pts_idx = extr.point3D_ids
+                mask = pts_idx >= 0
+                mask *= pts_idx < len(points3d)
+                pts_idx = pts_idx[mask]
+                valid_xys = extr.xys[mask]
+                if len(pts_idx) > 0:
+                    pts = points3d[pts_idx]
+                else:
+                    pts = np.array([0, 0, 0])
+                R = qvec2rotmat(extr.qvec)
+                pts = np.dot(pts, R.T) + extr.tvec
+                colmap_depth = pts[..., 2]
                 
-            mask_path_png = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.png')
-            mask_path_jpg = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.jpg')
+                s = depth_image.shape[0] / intr.height
+                maps = (valid_xys * s).astype(np.float32)
+                valid = (
+                    (maps[..., 0] >= 0) * 
+                    (maps[..., 1] >= 0) * 
+                    (maps[..., 0] < intr.width * s) * 
+                    (maps[..., 1] < intr.height * s) * 
+                    (colmap_depth > 0)
+                )
+
+                if valid.sum() > 100:
+                    maps = maps[valid, :]
+                    colmap_depth = colmap_depth[valid]
+                    colmap_depth_image = map_depth_to_image(maps, colmap_depth, (depth_image.shape[0], depth_image.shape[1]))
+
+                    depth_scale, depth_shift = compute_scale_and_shift_ls(depth_image, colmap_depth_image, colmap_depth_image > 0)
+                    
+                    # Apply scale and shift
+                    depth_tensor = torch.from_numpy(depth_image).float()
+                    depth_tensor = depth_tensor * depth_scale + depth_shift
+
+            mask_path_png = self.masks_dir / (os.path.splitext(os.path.basename(extr.name))[0] + '.png')
+            mask_path_jpg = self.masks_dir / (os.path.splitext(os.path.basename(extr.name))[0] + '.jpg')
             if mask_path_png.exists():
                 mask_path = mask_path_png
             elif mask_path_jpg.exists():
                 mask_path = mask_path_jpg
             else:
                 mask_path = None
-                
+
             if mask_path is not None:
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                 _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY) # Ensure mask is binary so multiply operation works as expected

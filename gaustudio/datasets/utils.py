@@ -6,6 +6,55 @@ import math
 from plyfile import PlyData, PlyElement
 from gaustudio import datasets
 
+def focal2fov(focal, pixels):
+    return 2*math.atan(pixels/(2*focal))
+
+def map_depth_to_image(maps, colmap_depth, original_shape):
+    # Create an empty image with the original shape
+    depth_image = np.zeros(original_shape, dtype=colmap_depth.dtype)
+    
+    # Round the map coordinates to the nearest integer
+    map_coords = np.round(maps).astype(int)
+    
+    # Ensure coordinates are within image bounds
+    valid_coords = (map_coords[:, 0] >= 0) & (map_coords[:, 0] < original_shape[1]) & \
+                   (map_coords[:, 1] >= 0) & (map_coords[:, 1] < original_shape[0])
+    
+    # Use the valid coordinates to place depth values in the image
+    depth_image[map_coords[valid_coords, 1], map_coords[valid_coords, 0]] = colmap_depth[valid_coords]
+    
+    # Optionally, you might want to fill in empty pixels
+    # This example uses a simple nearest-neighbor approach
+    depth_image = cv2.dilate(depth_image, np.ones((3, 3), np.uint8))
+    
+    return depth_image
+
+def compute_scale_and_shift_ls(prediction, target, mask):
+    # tuple specifying with axes to sum
+    sum_axes = (0, 1)
+
+    # system matrix: A = [[a_00, a_01], [a_10, a_11]]
+    a_00 = np.sum(mask * prediction * prediction, sum_axes)
+    a_01 = np.sum(mask * prediction, sum_axes)
+    a_11 = np.sum(mask, sum_axes)
+
+    # right hand side: b = [b_0, b_1]
+    b_0 = np.sum(mask * prediction * target, sum_axes)
+    b_1 = np.sum(mask * target, sum_axes)
+
+    # solution: x = A^-1 . b = [[a_11, -a_01], [-a_10, a_00]] / (a_00 * a_11 - a_01 * a_10) . b
+    x_0 = np.zeros_like(b_0)
+    x_1 = np.zeros_like(b_1)
+
+    det = a_00 * a_11 - a_01 * a_01
+    # A needs to be a positive definite matrix.
+    valid = det > 0
+
+    x_0[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
+    x_1[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
+
+    return x_0, x_1
+
 def storePly(path, xyz, rgb):
     # Define the dtype for the structured array
     dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
@@ -47,6 +96,39 @@ def camera_to_JSON(id, camera : datasets.Camera):
     }
     return camera_entry
 
+def JSON_to_camera(camera_json, data_device=None):
+    id = camera_json['id']
+    image_name = camera_json['img_name']
+    width = camera_json['width']
+    height = camera_json['height']
+    position = np.array(camera_json['position'])
+    rotation = np.array(camera_json['rotation'])
+    
+    W2C = np.eye(4)
+    W2C[:3, :3] = rotation
+    W2C[:3, 3] = position
+    Rt = np.linalg.inv(W2C)
+    
+    rotation = Rt[:3, :3]
+    position = Rt[:3, 3]
+    
+    fy = camera_json['fy']
+    fx = camera_json['fx']
+    
+    R = rotation.transpose()
+    T = position
+    
+    return datasets.Camera(
+        image_name=image_name,
+        image_width=width,
+        image_height=height,
+        R=R,
+        T=T,
+        FoVx=focal2fov(fx, width),
+        FoVy=focal2fov(fy, height)
+    )
+    
+    
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
         cam_centers = np.hstack(cam_centers)

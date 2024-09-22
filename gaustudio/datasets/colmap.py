@@ -1,7 +1,7 @@
 from gaustudio.datasets.utils import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
                                      read_extrinsics_binary, read_intrinsics_binary, \
                                      focal2fov, getNerfppNorm, camera_to_JSON, storePly, \
-                                    compute_scale_and_shift_ls, map_depth_to_image\
+                                    compute_scale_and_shift_ls, map_depth_to_image, \
                                     read_points3D_binary, read_points3D_text
 from gaustudio import datasets
 from torch.utils.data import Dataset, DataLoader

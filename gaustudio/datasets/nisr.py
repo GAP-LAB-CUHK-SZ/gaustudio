@@ -84,8 +84,6 @@ class NisrDatasetBase:
                                       image_width=width, image_height=height, mask=_mask_tensor,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras.append(_camera)
-            if _id == 20:
-                break
         self.all_cameras = all_cameras
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]

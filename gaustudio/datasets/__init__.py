@@ -397,4 +397,4 @@ def make(config):
 
 from . import colmap, waymo, polycam, scannet, mvsnet, nerf, \
                 nsvf, deepvoxels, nero, mobilebrick, neus, \
-                nerfstudio, vanilla
+                nerfstudio, vanilla, nisr

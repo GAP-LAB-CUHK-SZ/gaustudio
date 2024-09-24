@@ -35,6 +35,9 @@ class VanillaRenderer(BaseRenderer):
             cov3D_precomp = gaussian_model.get_covariance(self.scaling_modifier)
         else:
             scales = gaussian_model.get_attribute("scale")
+            if scales.shape[-1] == 2:
+                scales = torch.cat([scales, torch.zeros_like(scales[:, :1]) + 1e-7], dim=-1)
+        
             rotations = gaussian_model.get_attribute("rot")
         shs = None
         colors_precomp = None

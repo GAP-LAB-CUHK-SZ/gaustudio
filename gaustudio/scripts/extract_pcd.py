@@ -156,7 +156,10 @@ def main():
     
     from gaustudio.utils.misc import load_config
     from gaustudio import models, renderers
-    from gaustudio.datasets.utils import JSON_to_camera
+    try:
+        from gaustudio.datasets.utils import JSON_to_camera
+    except:
+        from gaustudio.utils.cameras_utils import JSON_to_camera
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')

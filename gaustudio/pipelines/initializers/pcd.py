@@ -1,5 +1,8 @@
 import numpy as np
 import torch
+from pathlib import Path
+import trimesh
+import os
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 
@@ -37,25 +40,33 @@ def rotmat2quaternion(R, normalize=False):
 class PcdInitializer(BaseInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
+        self.model_path = initializer_config.get('model_path', None)
 
-    def __call__(self, model, pcd, dataset=None, overwrite=False):
-        self.pcd = pcd
+    def __call__(self, model, dataset=None, overwrite=False):
         model = self.build_model(model)
 
     def build_model(self, model):
-        points = torch.tensor(np.asarray(self.pcd.points)).float()
-        colors = torch.tensor(np.asarray(self.pcd.colors)).float() if self.pcd.has_colors() else None
-        normals = torch.tensor(np.asarray(self.pcd.normals)).float() if self.pcd.has_normals() else None
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(f"PCD file not found: {self.model_path}")
+        
+        pcd = trimesh.load(self.model_path)
+        
+        points = torch.tensor(np.asarray(pcd.vertices)).float().cuda()
+        colors = torch.tensor(np.asarray(pcd.visual.vertex_colors[:, :3])).float().cuda() / 255.0 if pcd.visual.vertex_colors is not None else None
+        
+        try:
+            normals = torch.tensor(np.asarray(pcd.vertex_normals)).float().cuda() if pcd.vertex_normals is not None else None
+        except Exception as e:
+            print(e)
+            normals = None
 
         if normals is not None:
             rotations = normal2rotation(normals)
         else:
             rotations = None
 
-        # We don't initialize scales for point clouds
         scales = None
-
-        opacity = inverse_sigmoid(np.ones((points.shape[0], 1)))
+        opacity = inverse_sigmoid(0.5 * np.ones((points.shape[0], 1)))
+        
         model.create_from_attribute(xyz=points, rgb=colors, scale=scales, opacity=opacity, rot=rotations)
-
         return model

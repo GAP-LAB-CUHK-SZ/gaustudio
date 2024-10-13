@@ -11,9 +11,10 @@ from gaustudio.utils.misc import load_config
 @click.option('--overwrite', help='Overwrite existing files', is_flag=True)
 @click.option('--w_mask', '-w', is_flag=True, help='Use mask')
 @click.option('--resolution', '-r', default=1, type=int, help='Resolution')
-@click.option('--model_name', '-m', help='model name', default='vanilla')
+@click.option('--model', '-m', help='path to model')
+@click.option('--config', help='path to config file', default='vanilla')
 def main(init: str,dataset: str, source_path: Optional[str], output_dir: Optional[str], 
-        overwrite: bool, w_mask: bool, resolution: int, model_name: str) -> None:
+        overwrite: bool, w_mask: bool, resolution: int, model: str, config: str) -> None:
     from gaustudio import datasets
     from gaustudio import models
     from gaustudio.pipelines import initializers
@@ -30,11 +31,12 @@ def main(init: str,dataset: str, source_path: Optional[str], output_dir: Optiona
     
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
-    config_path = os.path.join(script_dir, '../configs', model_name+'.yaml')
+    config_path = os.path.join(script_dir, '../configs', config+'.yaml')
     config = load_config(config_path)
     pcd = models.make(config.model.pointcloud)
     
-    initializer_config = {"name": init, "workspace_dir": os.path.join(output_dir, 'data')}
+    initializer_config = {"name": init, "workspace_dir": os.path.join(output_dir, 'data'), 
+                          "model_path":model}
     initializer_instance = initializers.make(initializer_config)
 
     initializer_instance(pcd, dataset, overwrite=overwrite)

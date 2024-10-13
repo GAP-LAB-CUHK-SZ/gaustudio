@@ -23,4 +23,4 @@ def make(config):
     model = initlalizers[name](config)
     return model
 
-from . import colmap, loftr, gaussiansky, depth, dust3r, mask, mesh, pcd
+from . import colmap, hloc, gaussiansky, depth, dust3r, mask, mesh, pcd

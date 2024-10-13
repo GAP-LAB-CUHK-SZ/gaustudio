@@ -2,12 +2,10 @@ import os
 import numpy as np
 import tempfile
 import torch
-import trimesh
-from tqdm import tqdm
+import open3d as o3d
 from typing import List, Tuple
 from pathlib import Path
 import PIL.Image
-import torchvision.transforms as tvf
 
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.pcd import PcdInitializer
@@ -31,6 +29,21 @@ def _resize_pil_image(img, long_edge_size):
         interp = PIL.Image.BICUBIC
     new_size = tuple(int(round(x * long_edge_size / S)) for x in img.size)
     return img.resize(new_size, interp)
+
+def combine_and_clean_point_clouds(pcds, max_points=500000):
+    pcd_combined = o3d.geometry.PointCloud()
+    for p3d in pcds:
+        pcd_combined += p3d
+    total_points = len(pcd_combined.points)
+    if total_points > max_points:
+        every_k = total_points // max_points
+    else:
+        every_k = 1
+    pcd_combined = pcd_combined.uniform_down_sample(every_k)
+    cl, ind = pcd_combined.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    pcd_cleaned = pcd_combined.select_by_index(ind)
+    
+    return pcd_cleaned
 
 @initializers.register('dust3r')
 class Dust3rInitializer(PcdInitializer):
@@ -61,10 +74,11 @@ class Dust3rInitializer(PcdInitializer):
     
     def cache_dataset(self, dataset, square_ok=False):
         if len(dataset) > self.max_images:
-            print(f"Due to memory limitations, only the first {self.max_images} images will be processed.")
+            print(f"Downsampling dataset to {self.max_images} images using interval-based selection.")
+            interval = len(dataset) // self.max_images
+            dataset = dataset[::interval][:self.max_images]  # Ensure we don't exceed max_images
         
         for i, camera in enumerate(dataset[:self.max_images]):
-            img_path = self.ws_dir / f"{i:08d}.jpg"
             img = PIL.Image.fromarray((camera.image.numpy() * 255).astype(np.uint8))
             W1, H1 = img.size
             if self.image_size == 224:
@@ -97,7 +111,7 @@ class Dust3rInitializer(PcdInitializer):
         pairs: List[Tuple[dict, dict]] = make_pairs(
             self.imgs, scene_graph="swin", prefilter=None, symmetrize=True
         )
-        output = inference(pairs, self.dust3r_model, "cuda", batch_size=1)
+        output = inference(pairs, self.dust3r_model, "cuda", batch_size=8)
 
         mode = (
             GlobalAlignerMode.PointCloudOptimizer
@@ -142,9 +156,15 @@ class Dust3rInitializer(PcdInitializer):
             
         #     self.cameras.append(new_camera)
 
-        point_cloud = np.concatenate([p[m] for p, m in zip(pts3d_list, masks_list)])
-        colors = np.concatenate([c[m] for c, m in zip(images_list, masks_list)])
-        self.point_cloud = trimesh.PointCloud(point_cloud.reshape(-1, 3), colors=colors.reshape(-1, 3))
-        
-        self.point_cloud.export(self.model_path)
+        pcds = []
+        for pts, img, mask in zip(pts3d_list, images_list, masks_list):
+            if mask.mean() == 0:
+                continue
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(pts[mask].reshape(-1, 3))
+            colors = (img[mask] / 255.0).cpu().numpy()
+            pcd.colors = o3d.utility.Vector3dVector(colors.reshape(-1, 3))
+            pcds.append(pcd)
+        combined_pcd = combine_and_clean_point_clouds(pcds)   
+        o3d.io.write_point_cloud(self.model_path, combined_pcd)
         print(f"Fused point cloud saved to {self.model_path}")

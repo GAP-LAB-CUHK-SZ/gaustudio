@@ -1,8 +1,8 @@
 import numpy as np
 import torch
-from pathlib import Path
 import trimesh
 import os
+import open3d as o3d
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 
@@ -43,22 +43,27 @@ class PcdInitializer(BaseInitializer):
         self.model_path = initializer_config.get('model_path', None)
 
     def __call__(self, model, dataset=None, overwrite=False):
+        if not os.path.exists(self.model_path) or overwrite:
+            self.cache_dataset(dataset)
+            self.process_dataset()
         model = self.build_model(model)
-
+        return model
+    
+    def cache_dataset(self, dataset=None):
+        pass
+    
+    def process_dataset(self):
+        pass
+    
     def build_model(self, model):
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"PCD file not found: {self.model_path}")
+
+        pcd = o3d.io.read_point_cloud(self.model_path)
         
-        pcd = trimesh.load(self.model_path)
-        
-        points = torch.tensor(np.asarray(pcd.vertices)).float().cuda()
-        colors = torch.tensor(np.asarray(pcd.visual.vertex_colors[:, :3])).float().cuda() / 255.0 if pcd.visual.vertex_colors is not None else None
-        
-        try:
-            normals = torch.tensor(np.asarray(pcd.vertex_normals)).float().cuda() if pcd.vertex_normals is not None else None
-        except Exception as e:
-            print(e)
-            normals = None
+        points = torch.tensor(np.asarray(pcd.points)).float()
+        colors = torch.tensor(np.asarray(pcd.colors)).float() if len(pcd.colors) > 0 else None
+        normals = torch.tensor(np.asarray(pcd.normals)).float() if len(pcd.normals) > 0 else None
 
         if normals is not None:
             rotations = normal2rotation(normals)

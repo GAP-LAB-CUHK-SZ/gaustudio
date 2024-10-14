@@ -22,8 +22,11 @@ class GeneralPointCloud(BasePointCloud):
                 ('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
         
         xyz = self._xyz
-        normals = self._normals
-        rgb = self._rgb
+        try:
+            normals = self._normals
+        except:
+            normals = np.zeros_like(xyz)
+        rgb = self._rgb * 255
         
         elements = np.empty(xyz.shape[0], dtype=dtype)
         attributes = np.concatenate((xyz, normals, rgb), axis=1)

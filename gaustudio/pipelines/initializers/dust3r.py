@@ -84,33 +84,57 @@ class Dust3rInitializer(PcdInitializer):
             img = PIL.Image.fromarray((camera.image.numpy() * 255).astype(np.uint8))
             original_W, original_H = img.size
             
-            # Calculate original focal lengths
-            original_fx = original_W / (2 * np.tan(camera.FoVx / 2))
-            original_fy = original_H / (2 * np.tan(camera.FoVy / 2))
+            fx, fy = camera.intrinsics[0, 0], camera.intrinsics[1, 1]
+            cx, cy = camera.intrinsics[0, 2], camera.intrinsics[1, 2]
+
+            # Calculate margins to crop
+            min_margin_x = min(cx, original_W - cx)
+            min_margin_y = min(cy, original_H - cy)
+
+            # Calculate crop box
+            left = max(0, cx - min_margin_x)
+            top = max(0, cy - min_margin_y)
+            right = min(original_W, cx + min_margin_x)
+            bottom = min(original_H, cy + min_margin_y)
+
+            # Crop image
+            img = img.crop((left, top, right, bottom))
+            crop_W, crop_H = img.size
+
+            # Adjust intrinsics after cropping
+            cx -= left
+            cy -= top
 
             if self.image_size == 224:
                 # resize short side to 224 (then crop)
-                img = _resize_pil_image(img, round(self.image_size * max(original_W / original_H, original_H / original_W)))
+                scale = self.image_size / min(original_W, original_H)
             else:
                 # resize long side to 512
-                img = _resize_pil_image(img, self.image_size)
-            
-            W, H = img.size
-            cx, cy = W // 2, H // 2
-            if self.image_size == 224:
-                half = min(cx, cy)
-                img = img.crop((cx - half, cy - half, cx + half, cy + half))
-                W, H = img.size
-            else:
-                halfw, halfh = ((2 * cx) // 16) * 8, ((2 * cy) // 16) * 8
-                if not (square_ok) and W == H:
-                    halfh = 3 * halfw / 4
-                img = img.crop((cx - halfw, cy - halfh, cx + halfw, cy + halfh))
-                W, H = img.size
+                scale = self.image_size / max(original_W, original_H)
 
-            # Adjust focal lengths based on the new image size
-            fx = original_fx * (W / original_W)
-            fy = original_fy * (H / original_H)
+            # Calculate new size ensuring width and height are multiples of 16
+            new_W = round(original_W * scale / 16) * 16
+            new_H = round(original_H * scale / 16) * 16
+
+            # Adjust size if not square_ok and W == H
+            if not square_ok and new_W == new_H:
+                if new_W > new_H:
+                    new_H = round(new_H * 0.75 / 16) * 16
+                else:
+                    new_W = round(new_W * 0.75 / 16) * 16
+
+            # Calculate actual scale factors
+            scale_W = new_W / original_W
+            scale_H = new_H / original_H
+
+            # Resize image
+            img = img.resize((new_W, new_H), PIL.Image.LANCZOS)
+
+            # Adjust intrinsics
+            fx *= scale_W
+            fy *= scale_H
+            cx *= scale_W
+            cy *= scale_H
 
             img_tensor = torch.tensor(np.asarray(img))
             self.imgs.append(dict(
@@ -124,8 +148,6 @@ class Dust3rInitializer(PcdInitializer):
             pose = torch.linalg.inv(camera.extrinsics)
             self.poses.append(pose)
 
-            # Cache intrinsics with adjusted focal lengths
-            cx, cy = W // 2, H // 2
             intrinsic = torch.tensor([
                 [fx, 0, cx],
                 [0, fy, cy],
@@ -144,6 +166,8 @@ class Dust3rInitializer(PcdInitializer):
         )
         output = inference(pairs, self.dust3r_model, "cuda", batch_size=16)
         self.dust3r_model = None
+        images_list = [img_dict['unnorm_img'].squeeze() for img_dict in self.imgs]
+        del pairs, self.imgs
         scene: BasePCOptimizer = global_aligner(
             dust3r_output=output, device="cuda", mode=GlobalAlignerMode.PointCloudOptimizer
         )
@@ -159,8 +183,6 @@ class Dust3rInitializer(PcdInitializer):
 
         pts3d_list = [pt3d.numpy(force=True) for pt3d in scene.get_pts3d()]
         masks_list = [mask.numpy(force=True) for mask in scene.get_masks()]
-        images_list = [img_dict['unnorm_img'].squeeze() for img_dict in self.imgs]
-
         pcds = []
         for pts, img, mask in zip(pts3d_list, images_list, masks_list):
             if mask.mean() == 0:

@@ -71,7 +71,7 @@ class PcdInitializer(BaseInitializer):
             rotations = None
 
         scales = None
-        opacity = inverse_sigmoid(0.5 * np.ones((points.shape[0], 1)))
+        opacity = inverse_sigmoid(0.1 * np.ones((points.shape[0], 1)))
         
         model.create_from_attribute(xyz=points, rgb=colors, scale=scales, opacity=opacity, rot=rotations)
         return model

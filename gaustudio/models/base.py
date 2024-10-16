@@ -63,6 +63,8 @@ class BasePointCloud(nn.Module):
         
     def create_from_attribute(self, **args):
         for elem in args:
+            if args[elem] is None:
+                continue
             tensor_value = torch.as_tensor(args[elem])
             setattr(self, '_' + elem, tensor_value)
             self.num_points = tensor_value.shape[0]
@@ -104,3 +106,30 @@ class BasePointCloud(nn.Module):
     
     def get_attribute(self, attribute):
         return getattr(self, '_'+attribute)
+    
+    def __add__(self, other):
+        if not isinstance(other, BasePointCloud):
+            raise TypeError("Unsupported operand type for +: '{}' and '{}'".format(type(self).__name__, type(other).__name__))
+        
+        # Create a new instance of the same class as self
+        result = self.__class__(self.config, device=self.device)
+        
+        # Combine attributes
+        for attr in self.config["attributes"]:
+            self_attr = getattr(self, f'_{attr}')
+            other_attr = getattr(other, f'_{attr}', None)
+            
+            if other_attr is not None:
+                # Concatenate the attributes if both point clouds have them
+                combined_attr = torch.cat([self_attr, other_attr], dim=0)
+            else:
+                # If the other point cloud doesn't have this attribute, pad with zeros
+                padding = torch.zeros(other.num_points, self_attr.shape[1], device=self.device)
+                combined_attr = torch.cat([self_attr, padding], dim=0)
+            
+            setattr(result, f'_{attr}', combined_attr)
+        
+        # Update the number of points
+        result.num_points = self.num_points + other.num_points
+        
+        return result

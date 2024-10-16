@@ -56,7 +56,7 @@ class VisualHullInitializer(BaseInitializer):
         points_world = torch.from_numpy(points_world).float().cuda()
         filled = torch.ones((points_world.shape[0])).cuda().bool()
 
-        for camera in tqdm(dataset[::10]):
+        for camera in tqdm(dataset):
             camera = deepcopy(camera)
             camera = camera.to('cuda')
 

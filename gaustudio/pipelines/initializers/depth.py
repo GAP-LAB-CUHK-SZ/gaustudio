@@ -15,8 +15,8 @@ from copy import deepcopy
 def inverse_sigmoid(x):
     return np.log(x / (1 - x))
 
-@initializers.register('unproject')
-class UnprojectInitializer(BaseInitializer):
+@initializers.register('depth')
+class DepthInitializer(BaseInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
         self.ws_dir = self.initializer_config.get('workspace_dir')
@@ -42,16 +42,17 @@ class UnprojectInitializer(BaseInitializer):
         for _id, camera in tqdm(enumerate(dataset), total=len(dataset)):  # Add total for tqdm progress bar
             camera = deepcopy(camera)
             camera = camera.downsample_scale(4).to("cuda")
-            world_xyz = camera.depth2point(coordinate='world').cpu().numpy()  # Ensure conversion to numpy
-            world_rgb = camera.image.cpu().numpy()  # Ensure conversion to numpy
-            
-            # Adopted from https://github.com/spla-tam/SplaTAM/blob/main/scripts/splatam.py#L100
-            world_scale = camera.depth / ((camera.fx + camera.fy) / 2)
-            pcd = np.hstack((world_xyz.reshape(-1, 3), world_rgb.reshape(-1, 3), 
-                             world_scale.cpu().numpy().reshape(-1, 1)))
-            pcd_path = os.path.join(self.ws_dir, f"point_cloud_{_id}.bin")
-            pcd.astype('float16').tofile(pcd_path)
-            self.cache_pcd_paths.append(pcd_path)
+            if camera.depth is not None:
+                world_xyz = camera.depth2point(coordinate='world').cpu().numpy()  # Ensure conversion to numpy
+                world_rgb = camera.image.cpu().numpy()  # Ensure conversion to numpy
+                
+                # Adopted from https://github.com/spla-tam/SplaTAM/blob/main/scripts/splatam.py#L100
+                world_scale = camera.depth / ((camera.fx + camera.fy) / 2)
+                pcd = np.hstack((world_xyz.reshape(-1, 3), world_rgb.reshape(-1, 3), 
+                                world_scale.cpu().numpy().reshape(-1, 1)))
+                pcd_path = os.path.join(self.ws_dir, f"point_cloud_{_id}.bin")
+                pcd.astype('float16').tofile(pcd_path)
+                self.cache_pcd_paths.append(pcd_path)
 
     def process_dataset(self):
         pcds = []

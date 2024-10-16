@@ -61,7 +61,7 @@ class Dust3rInitializer(PcdInitializer):
         os.makedirs(self.ws_dir, exist_ok=True)
         self.model_path = str(self.ws_dir / 'fused.ply')
         self.dust3r_model = AsymmetricCroCo3DStereo.from_pretrained(
-            "nielsr/DUSt3R_ViTLarge_BaseDecoder_512_dpt"
+            "https://huggingface.co/camenduru/dust3r/resolve/main/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
         ).to("cuda")
         self.imgs = []
         self.poses = []
@@ -87,8 +87,9 @@ class Dust3rInitializer(PcdInitializer):
             mask = PIL.Image.fromarray((camera.mask.numpy() * 255).astype(np.uint8))  # Assuming mask is available in camera object
             original_W, original_H = img.size
             
-            fx, fy = camera.intrinsics[0, 0], camera.intrinsics[1, 1]
-            cx, cy = camera.intrinsics[0, 2], camera.intrinsics[1, 2]
+            _intrinsics = camera.intrinsics.cpu().numpy()
+            fx, fy = _intrinsics[0, 0], _intrinsics[1, 1]
+            cx, cy = _intrinsics[0, 2], _intrinsics[1, 2]
 
             # Calculate margins to crop
             min_margin_x = min(cx, original_W - cx)

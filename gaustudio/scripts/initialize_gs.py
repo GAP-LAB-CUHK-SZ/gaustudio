@@ -22,7 +22,6 @@ def main(dataset: str, source_path: Optional[str], output_dir: Optional[str],
         "name": dataset,
         "source_path": source_path,
         "masks": w_mask,
-        "w_mask": w_mask is not None,
         "camera_number": 1,
     }
 

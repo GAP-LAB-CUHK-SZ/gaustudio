@@ -1,8 +1,12 @@
 import os
 import pycolmap
+import shutil
+from tqdm import tqdm
+from PIL import Image
 import numpy as np
 import torchvision
 import tempfile
+import shutil
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 from gaustudio.utils.colmap_utils import COLMAPDatabase, create_images_bin, create_cameras_and_points_bin
@@ -33,10 +37,12 @@ class ColmapInitializer(BaseInitializer):
         return model
 
     def cache_dataset(self, dataset):
-        print("Caching images and preparing dataset...")
-        for img_id, camera in enumerate(dataset):
+        for img_id, camera in enumerate(tqdm(dataset, desc="Caching images")):
             img_name = str(img_id).zfill(8)
-            torchvision.utils.save_image(camera.image.permute(2, 0, 1), os.path.join(self.images_dir, f'{img_name}.jpg'))
+            
+            img_np = camera.image.numpy() * 255  # Convert to HWC format
+            img_pil = Image.fromarray(np.uint8(img_np))
+            img_pil.save(os.path.join(self.images_dir, f'{img_name}.jpg'), quality=95)
             
             if camera.mask is not None:
                 self.masks_dir = os.path.join(self.ws_dir, 'masks')
@@ -69,6 +75,7 @@ class ColmapInitializer(BaseInitializer):
 
         reference = pycolmap.Reconstruction(os.path.join(self.ws_dir, 'model'))
         pycolmap.triangulate_points(reference, self.db_path, self.images_dir, sparse_reconstruction_folder)
+        shutil.rmtree(os.path.join(self.ws_dir, 'model'))
 
     def build_model(self, model):
         """

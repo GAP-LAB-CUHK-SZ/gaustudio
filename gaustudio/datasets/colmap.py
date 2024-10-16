@@ -24,6 +24,7 @@ class ColmapDatasetBase:
         self.images_dir = self.path / config.get('images', 'images')
         self.masks_dir = self.path / config.get('masks', 'masks')
         self.sparse_dir = self.path / config.get('sparse', 'sparse')
+        self.depths_dir = self.path / config.get('depths', 'depths')
         self.resolution = config.get('resolution', 1)
         self.w_mask = config.get('w_mask', False)
         self.eval = config.get('eval', False)
@@ -92,6 +93,13 @@ class ColmapDatasetBase:
             _image = cv2.imread(str(image_path))
             height, width, _ = _image.shape
             
+            depth_path = self.depths_dir / (os.path.basename(extr.name)[:-4] + '.png')
+            if depth_path.exists():
+                depth_tensor = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED) / 1000
+                depth_tensor = torch.from_numpy(depth_tensor).float()
+            else:
+                depth_tensor = None
+                
             mask_path_png = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.png')
             mask_path_jpg = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.jpg')
             if mask_path_png.exists():
@@ -108,21 +116,20 @@ class ColmapDatasetBase:
                 bg_mask = cv2.bitwise_not(mask) # Invert the mask to get the background
                 bg_image = cv2.bitwise_and(_image, _image, mask=bg_mask)
                 _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
-                bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
+                _bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
                 _mask_tensor = torch.from_numpy(mask) / 255
-                _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), 
-                                          image_width=width, image_height=height, image=_image_tensor, image_path=image_path, 
-                                          bg_image=bg_image_tensor, mask=_mask_tensor)
             else:
+                _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
+                _mask_tensor = torch.ones((height, width))
                 if self.white_background:
-                    bg_image_tensor = torch.ones((height, width, 3))
+                    _bg_image_tensor = torch.ones((height, width, 3))
                 else:
-                    bg_image_tensor = torch.zeros((height, width, 3))
-                _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
-                                          image_width=width, image_height=height, bg_image=bg_image_tensor,
-                                          principal_point_ndc=np.array([cx / width, cy /height]))
-                if self.resolution > 1:
-                    _camera.downsample_scale(self.resolution)
+                    _bg_image_tensor = torch.zeros((height, width, 3))
+            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), image_path=image_path, 
+                                          image_width=width, image_height=height, principal_point_ndc=np.array([cx / width, cy /height]), 
+                                          image=_image_tensor, bg_image=_bg_image_tensor, mask=_mask_tensor, depth=depth_tensor)
+            if self.resolution > 1:
+                _camera.downsample_scale(self.resolution)
             all_cameras_unsorted.append(_camera)
 
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

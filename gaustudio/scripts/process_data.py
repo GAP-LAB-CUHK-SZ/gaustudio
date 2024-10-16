@@ -31,10 +31,10 @@ def main(dataset: str, source_path: Optional[str], output_dir: Optional[str],
         "source_path": source_path,
         "w_mask": w_mask,
         "camera_number": 1,
-        "resolution": resolution,
     }
 
     dataset_instance = datasets.make(dataset_config)
+    dataset_instance.all_cameras = [_camera.downsample_scale(resolution) for _camera in dataset_instance.all_cameras]
     pcd = models.make("general_pcd")
     initializer_config = {"name": init, "workspace_dir": output_dir}
     initializer_instance = initializers.make(initializer_config)

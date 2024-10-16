@@ -1,19 +1,18 @@
-import sys
-import argparse
 import os
-import time
-import logging
-from datetime import datetime
 import torch
 import json
-from pathlib import Path
-import cv2
 import torchvision
-from tqdm import tqdm
 import trimesh
+import argparse
+
+from tqdm import tqdm
 import numpy as np
-from torchvision.transforms.functional import to_pil_image, pil_to_tensor
 import open3d as o3d
+
+from gaustudio.utils.sh_utils import SH2RGB
+from gaustudio.utils.misc import load_config
+from gaustudio import models, renderers
+from gaustudio.datasets.utils import JSON_to_camera, getNerfppNorm
 
 def searchForMaxIteration(folder):
     saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
@@ -72,12 +71,6 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     n_gpus = len(args.gpu.split(','))
     
-    from gaustudio.utils.misc import load_config
-    from gaustudio import models, renderers
-    try:
-        from gaustudio.datasets.utils import JSON_to_camera
-    except:
-        from gaustudio.utils.cameras_utils import JSON_to_camera
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -118,22 +111,32 @@ def main():
     else:
         assert "Camera data not found at {}".format(args.camera)
     
-    from gaustudio.utils.sh_utils import SH2RGB
-    from gaustudio.datasets.utils import getNerfppNorm
+    render_path = os.path.join(work_dir, "images")
+    normal_path = os.path.join(work_dir, "normals")
+    mask_path = os.path.join(work_dir, "masks")
+    os.makedirs(render_path, exist_ok=True)
+    os.makedirs(mask_path, exist_ok=True)
+    os.makedirs(normal_path, exist_ok=True)
+
     scene_radius = getNerfppNorm(cameras)["radius"]
     all_ids = []
     all_normals = []
+
     for camera in tqdm(cameras):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
-        rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
+        
+        rendering = render_pkg["render"]
+        rendered_final_opacity = render_pkg["rendered_final_opacity"][0]
         rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
-        normals = camera.depth2normal(rendered_depth, coordinate='world')
-        median_point_depths =  render_pkg["rendered_median_depth"][0]
-        median_point_ids =  render_pkg["rendered_median_depth"][2].int()
-        median_point_weights =  render_pkg["rendered_median_depth"][1]
+        cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
+        normals = camera.normal2worldnormal(cam_normals)
+        median_point_depths = render_pkg["rendered_median_depth"][0]
+        median_point_ids = render_pkg["rendered_median_depth"][2].int()
+        
+        fg_mask = rendered_final_opacity > 0.1
         valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.5)
         valid_mask = (normals.sum(dim=-1) > -3) & valid_mask
 
@@ -142,6 +145,32 @@ def main():
         
         all_ids.append(median_point_ids)
         all_normals.append(median_point_normals)
+
+        torchvision.utils.save_image(rendering, os.path.join(render_path, f"{camera.image_name}.png"))
+        torchvision.utils.save_image((cam_normals.permute(2, 0, 1) + 1)/2, os.path.join(normal_path, f"{camera.image_name}.png"))
+        torchvision.utils.save_image(fg_mask.float(), os.path.join(mask_path, f"{camera.image_name}.png"))
+
+        # Save camera information
+        cam_path = os.path.join(render_path, f"{camera.image_name}.cam")
+        K = camera.intrinsics.cpu().numpy()
+        fx, fy = K[0, 0], K[1, 1]
+        paspect = fy / fx
+        width, height = camera.image_width, camera.image_height
+        dim_aspect = width / height
+        img_aspect = dim_aspect * paspect
+        flen = fy / height if img_aspect < 1.0 else fx / width
+        ppx, ppy = K[0, 2] / width, K[1, 2] / height
+
+        P = camera.extrinsics.cpu().numpy()
+        with open(cam_path, 'w') as f:
+            s1, s2 = '', ''
+            for i in range(3):
+                for j in range(3):
+                    s1 += str(P[i][j]) + ' '
+                s2 += str(P[i][3]) + ' '
+            f.write(s2 + s1[:-1] + '\n')
+            f.write(f"{flen} 0 0 {paspect} {ppx} {ppy}\n")
+
     all_ids = torch.cat(all_ids, dim=0)
     all_normals = torch.cat(all_normals, dim=0)
     
@@ -168,20 +197,20 @@ def main():
     pcd = clean_point_cloud(pcd)
     print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
 
-    o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd)
+    o3d.io.write_point_cloud(os.path.join(work_dir, "fused.ply"), pcd)
     
     if args.meshing == 'nksr':
         input_xyz = torch.from_numpy(np.asarray(pcd.points)).float()
         input_normal = torch.from_numpy(np.asarray(pcd.normals)).float()
         mesh = mesh_nksr(input_xyz, input_normal)
-        mesh.export(os.path.join(args.output_dir, "fused_mesh.ply"))
+        mesh.export(os.path.join(work_dir, "fused_mesh.ply"))
     elif args.meshing.startswith('poisson'):
         if args.meshing == 'poisson':
             depth = 8
         else:
             depth = int(args.meshing.split('-')[1])
         mesh = mesh_poisson(pcd, depth=depth)
-        o3d.io.write_triangle_mesh(os.path.join(args.output_dir, f"fused_mesh.ply"), mesh)
+        o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
     elif args.meshing == 'None':
         print("Skipping meshing as requested.")
     else:

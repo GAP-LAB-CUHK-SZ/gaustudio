@@ -6,6 +6,7 @@ import open3d as o3d
 from typing import List, Tuple
 from pathlib import Path
 import PIL.Image
+from tqdm import tqdm
 
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.pcd import PcdInitializer
@@ -50,6 +51,7 @@ class Dust3rInitializer(PcdInitializer):
     def __init__(self, initializer_config):
         super().__init__(initializer_config)
         self.ws_dir = self.initializer_config.get('workspace_dir')
+        self.prune_background = self.initializer_config.get('prune_bg', False)
         if self.ws_dir is None:
             self.ws_dir = Path(tempfile.mkdtemp())
             print(f"No workspace directory provided. Using temporary directory: {self.ws_dir}")
@@ -82,6 +84,7 @@ class Dust3rInitializer(PcdInitializer):
         
         for i, camera in enumerate(dataset[:self.max_images]):
             img = PIL.Image.fromarray((camera.image.numpy() * 255).astype(np.uint8))
+            mask = PIL.Image.fromarray((camera.mask.numpy() * 255).astype(np.uint8))  # Assuming mask is available in camera object
             original_W, original_H = img.size
             
             fx, fy = camera.intrinsics[0, 0], camera.intrinsics[1, 1]
@@ -97,8 +100,9 @@ class Dust3rInitializer(PcdInitializer):
             right = min(original_W, cx + min_margin_x)
             bottom = min(original_H, cy + min_margin_y)
 
-            # Crop image
+            # Crop image and mask
             img = img.crop((left, top, right, bottom))
+            mask = mask.crop((left, top, right, bottom))
             crop_W, crop_H = img.size
 
             # Adjust intrinsics after cropping
@@ -127,8 +131,9 @@ class Dust3rInitializer(PcdInitializer):
             scale_W = new_W / original_W
             scale_H = new_H / original_H
 
-            # Resize image
+            # Resize image and mask
             img = img.resize((new_W, new_H), PIL.Image.LANCZOS)
+            mask = mask.resize((new_W, new_H), PIL.Image.NEAREST)  # Use NEAREST for mask to preserve binary values
 
             # Adjust intrinsics
             fx *= scale_W
@@ -137,9 +142,11 @@ class Dust3rInitializer(PcdInitializer):
             cy *= scale_H
 
             img_tensor = torch.tensor(np.asarray(img))
+            mask_tensor = torch.tensor(np.asarray(mask))
             self.imgs.append(dict(
                 img=ImgNorm(img)[None],
                 unnorm_img=img_tensor[None],
+                mask=mask_tensor[None],  # Add mask to the dictionary
                 true_shape=np.int32([img.size[::-1]]),
                 idx=len(self.imgs),
                 instance=str(len(self.imgs)),
@@ -167,6 +174,7 @@ class Dust3rInitializer(PcdInitializer):
         output = inference(pairs, self.dust3r_model, "cuda", batch_size=16)
         self.dust3r_model = None
         images_list = [img_dict['unnorm_img'].squeeze() for img_dict in self.imgs]
+        fg_masks_list = [img_list['mask'].squeeze() for img_list in self.imgs]
         del pairs, self.imgs
         scene: BasePCOptimizer = global_aligner(
             dust3r_output=output, device="cuda", mode=GlobalAlignerMode.PointCloudOptimizer
@@ -184,9 +192,12 @@ class Dust3rInitializer(PcdInitializer):
         pts3d_list = [pt3d.numpy(force=True) for pt3d in scene.get_pts3d()]
         masks_list = [mask.numpy(force=True) for mask in scene.get_masks()]
         pcds = []
-        for pts, img, mask in zip(pts3d_list, images_list, masks_list):
+        for pts, img, mask, fg_mask in tqdm(zip(pts3d_list, images_list, masks_list, fg_masks_list), desc="Fusing Point Cloud"):
             if mask.mean() == 0:
                 continue
+            if self.prune_background:
+                # combine fg_mask and confidance mask
+                mask = np.logical_and(mask, fg_mask.cpu().numpy())
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(pts[mask].reshape(-1, 3))
             colors = (img[mask] / 255.0).cpu().numpy()
@@ -194,4 +205,3 @@ class Dust3rInitializer(PcdInitializer):
             pcds.append(pcd)
         combined_pcd = combine_and_clean_point_clouds(pcds)   
         o3d.io.write_point_cloud(self.model_path, combined_pcd)
-        print(f"Fused point cloud saved to {self.model_path}")

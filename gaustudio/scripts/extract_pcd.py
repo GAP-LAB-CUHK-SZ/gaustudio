@@ -73,7 +73,7 @@ def main():
     parser.add_argument('--white_background', action='store_true', help='use white background')
     parser.add_argument('--clean', action='store_true', help='perform a clean operation')
     parser.add_argument('--meshing', choices=['nksr', 'poisson', 'sap', \
-                                              'poisson-8', 'poisson-9', None], 
+                                              'poisson-9', None], 
                         default='nksr', help='Meshing method to use')
     args, extras = parser.parse_known_args()
     

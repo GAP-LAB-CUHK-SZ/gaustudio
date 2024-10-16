@@ -29,7 +29,7 @@ def clean_point_cloud(pcd, nb_neighbors=50, std_ratio=2.0):
     cl, ind = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
     return pcd.select_by_index(ind)
 
-def mesh_nksr(input_xyz, input_normal, voxel_size=0.04, detail_level=0):
+def mesh_nksr(input_xyz, input_normal, voxel_size=0.008, detail_level=0):
     try:
         from nksr import Reconstructor, utils, fields
     except:
@@ -43,18 +43,23 @@ def mesh_nksr(input_xyz, input_normal, voxel_size=0.04, detail_level=0):
     mesh = field.extract_dual_mesh(mise_iter=2)
     return trimesh.Trimesh(vertices=mesh.v.cpu().numpy(), faces=mesh.f.cpu().numpy())
 
-def mesh_poisson(pcd, depth=8,  density_threshold=0.01):
+def mesh_poisson(pcd, depth=8,  density_threshold=0.01):    
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        pcd, depth=depth, width=0, scale=1.1, linear_fit=False)
+        pcd, depth=depth, width=0, scale=1.2, linear_fit=False)
 
     densities = np.asarray(densities)
     densities = (densities - densities.min()) / (densities.max() - densities.min())
 
     vertices_to_remove = densities < np.quantile(densities, density_threshold)
     mesh.remove_vertices_by_mask(vertices_to_remove)
-    mesh.compute_triangle_normals()
     return mesh
-    
+
+def mesh_sap(pcd):
+    from gaustudio.models import ShapeAsPoints
+    sap_pcd = ShapeAsPoints.from_o3d_pointcloud(pcd)
+    mesh = sap_pcd.to_o3d_mesh()
+    return mesh
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
@@ -67,8 +72,8 @@ def main():
     parser.add_argument('--sh', default=0, type=int, help='default SH degree')
     parser.add_argument('--white_background', action='store_true', help='use white background')
     parser.add_argument('--clean', action='store_true', help='perform a clean operation')
-    parser.add_argument('--meshing', choices=['nksr', 'poisson', 
-                                                     'poisson-8', 'poisson-9', None], 
+    parser.add_argument('--meshing', choices=['nksr', 'poisson', 'sap', \
+                                              'poisson-8', 'poisson-9', None], 
                         default='nksr', help='Meshing method to use')
     args, extras = parser.parse_known_args()
     

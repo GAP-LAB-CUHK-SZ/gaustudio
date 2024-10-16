@@ -1,22 +1,60 @@
-import sys
-import argparse
 import os
-import time
-import logging
-from datetime import datetime
 import torch
 import json
-from pathlib import Path
-import cv2
 import torchvision
-from tqdm import tqdm
 import trimesh
+import argparse
+
+from tqdm import tqdm
 import numpy as np
-from torchvision.transforms.functional import to_pil_image, pil_to_tensor
+import open3d as o3d
+
+from gaustudio.utils.sh_utils import SH2RGB
+from gaustudio.utils.misc import load_config
+from gaustudio import models, renderers
+from gaustudio.datasets.utils import JSON_to_camera, getNerfppNorm
+
 def searchForMaxIteration(folder):
     saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
     return max(saved_iters)
 
+def create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np):
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(surface_xyz_np)
+    pcd.colors = o3d.utility.Vector3dVector(surface_color_np)
+    pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
+    return pcd
+
+def clean_point_cloud(pcd, nb_neighbors=50, std_ratio=2.0):
+    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    return pcd.select_by_index(ind)
+
+def mesh_nksr(input_xyz, input_normal, voxel_size=0.04, detail_level=0):
+    try:
+        from nksr import Reconstructor, utils, fields
+    except:
+        raise ImportError("Please install nksr to use this feature.")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    input_xyz = input_xyz.to(device)
+    input_normal = input_normal.to(device)
+    reconstructor = Reconstructor(device)
+    field = reconstructor.reconstruct(input_xyz, input_normal, voxel_size=voxel_size, detail_level=detail_level)
+    mesh = field.extract_dual_mesh(mise_iter=2)
+    return trimesh.Trimesh(vertices=mesh.v.cpu().numpy(), faces=mesh.f.cpu().numpy())
+
+def mesh_poisson(pcd, depth=8,  density_threshold=0.01):
+    mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+        pcd, depth=depth, width=0, scale=1.1, linear_fit=False)
+
+    densities = np.asarray(densities)
+    densities = (densities - densities.min()) / (densities.max() - densities.min())
+
+    vertices_to_remove = densities < np.quantile(densities, density_threshold)
+    mesh.remove_vertices_by_mask(vertices_to_remove)
+    mesh.compute_triangle_normals()
+    return mesh
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
@@ -29,6 +67,9 @@ def main():
     parser.add_argument('--sh', default=0, type=int, help='default SH degree')
     parser.add_argument('--white_background', action='store_true', help='use white background')
     parser.add_argument('--clean', action='store_true', help='perform a clean operation')
+    parser.add_argument('--meshing', choices=['nksr', 'poisson', 
+                                                     'poisson-8', 'poisson-9', None], 
+                        default='nksr', help='Meshing method to use')
     args, extras = parser.parse_known_args()
     
     # set CUDA_VISIBLE_DEVICES then import pytorch-lightning
@@ -36,9 +77,6 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     n_gpus = len(args.gpu.split(','))
     
-    from gaustudio.utils.misc import load_config
-    from gaustudio import models, renderers
-    from gaustudio.utils.cameras_utils import JSON_to_camera
     # parse YAML config to OmegaConf
     script_dir = os.path.dirname(__file__)
     config_path = os.path.join(script_dir, '../configs', args.config+'.yaml')
@@ -79,24 +117,33 @@ def main():
     else:
         assert "Camera data not found at {}".format(args.camera)
     
-    from gaustudio.utils.sh_utils import SH2RGB
-    from gaustudio.datasets.utils import getNerfppNorm
+    render_path = os.path.join(work_dir, "images")
+    normal_path = os.path.join(work_dir, "normals")
+    mask_path = os.path.join(work_dir, "masks")
+    os.makedirs(render_path, exist_ok=True)
+    os.makedirs(mask_path, exist_ok=True)
+    os.makedirs(normal_path, exist_ok=True)
+
     scene_radius = getNerfppNorm(cameras)["radius"]
     all_ids = []
     all_normals = []
-    for camera in tqdm(cameras[::3]):
+
+    for camera in tqdm(cameras):
         camera.downsample_scale(args.resolution)
         camera = camera.to("cuda")
         with torch.no_grad():
             render_pkg = renderer.render(camera, pcd)
-        rendered_final_opacity =  render_pkg["rendered_final_opacity"][0]
-        rendered_depth = render_pkg["rendered_depth"][0]
-        normals = camera.depth2normal(rendered_depth, coordinate='world')        
-        median_point_depths =  render_pkg["rendered_median_depth"][0]
-        median_point_ids =  render_pkg["rendered_median_depth"][2].int()
-        median_point_weights =  render_pkg["rendered_median_depth"][1]
-        valid_mask = (rendered_final_opacity > 0.5) & (median_point_weights > 0.1)
-        valid_mask = (median_point_depths < scene_radius * 1.5) & valid_mask
+        
+        rendering = render_pkg["render"]
+        rendered_final_opacity = render_pkg["rendered_final_opacity"][0]
+        rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
+        cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
+        normals = camera.normal2worldnormal(cam_normals)
+        median_point_depths = render_pkg["rendered_median_depth"][0]
+        median_point_ids = render_pkg["rendered_median_depth"][2].int()
+        
+        fg_mask = rendered_final_opacity > 0.1
+        valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.5)
         valid_mask = (normals.sum(dim=-1) > -3) & valid_mask
 
         median_point_ids = median_point_ids[valid_mask]
@@ -104,28 +151,76 @@ def main():
         
         all_ids.append(median_point_ids)
         all_normals.append(median_point_normals)
+
+        torchvision.utils.save_image(rendering, os.path.join(render_path, f"{camera.image_name}.png"))
+        torchvision.utils.save_image((cam_normals.permute(2, 0, 1) + 1)/2, os.path.join(normal_path, f"{camera.image_name}.png"))
+        torchvision.utils.save_image(fg_mask.float(), os.path.join(mask_path, f"{camera.image_name}.png"))
+
+        # Save camera information
+        cam_path = os.path.join(render_path, f"{camera.image_name}.cam")
+        K = camera.intrinsics.cpu().numpy()
+        fx, fy = K[0, 0], K[1, 1]
+        paspect = fy / fx
+        width, height = camera.image_width, camera.image_height
+        dim_aspect = width / height
+        img_aspect = dim_aspect * paspect
+        flen = fy / height if img_aspect < 1.0 else fx / width
+        ppx, ppy = K[0, 2] / width, K[1, 2] / height
+
+        P = camera.extrinsics.cpu().numpy()
+        with open(cam_path, 'w') as f:
+            s1, s2 = '', ''
+            for i in range(3):
+                for j in range(3):
+                    s1 += str(P[i][j]) + ' '
+                s2 += str(P[i][3]) + ' '
+            f.write(s2 + s1[:-1] + '\n')
+            f.write(f"{flen} 0 0 {paspect} {ppx} {ppy}\n")
+
     all_ids = torch.cat(all_ids, dim=0)
     all_normals = torch.cat(all_normals, dim=0)
     
     # fusion
     unique_ids, inverse_indices = torch.unique(all_ids, return_inverse=True)
+    
     num_unique_ids = len(unique_ids)
     sum_normals = torch.zeros((num_unique_ids, all_normals.size(1)), device=all_normals.device)
     counts = torch.zeros(num_unique_ids, device=all_ids.device)
     sum_normals.index_add_(0, inverse_indices, all_normals)
     counts.index_add_(0, inverse_indices, torch.ones_like(inverse_indices, dtype=torch.float))
     mean_normals = sum_normals / counts.unsqueeze(1)
+    mean_normals = torch.nn.functional.normalize(mean_normals, p=2, dim=1)
 
-    import open3d as o3d
-    surface_xyz_np = pcd._xyz[unique_ids].cpu().numpy()
-    surface_color_np = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1).cpu().numpy()
-    surface_normal_np = mean_normals.cpu().numpy()
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(surface_xyz_np)
-    pcd.colors = o3d.utility.Vector3dVector(surface_color_np)
-    pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
-    o3d.io.write_point_cloud(os.path.join(args.output_dir, "fused.ply"), pcd)
+    surface_xyz = pcd._xyz[unique_ids]
+    surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
+    surface_normal = mean_normals
     
+    surface_xyz_np = surface_xyz.cpu().numpy()
+    surface_color_np = surface_color.cpu().numpy()
+    surface_normal_np = surface_normal.cpu().numpy()
+    pcd = create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np)
+    
+    pcd = clean_point_cloud(pcd)
+    print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
+
+    o3d.io.write_point_cloud(os.path.join(work_dir, "fused.ply"), pcd)
+    
+    if args.meshing == 'nksr':
+        input_xyz = torch.from_numpy(np.asarray(pcd.points)).float()
+        input_normal = torch.from_numpy(np.asarray(pcd.normals)).float()
+        mesh = mesh_nksr(input_xyz, input_normal)
+        mesh.export(os.path.join(work_dir, "fused_mesh.ply"))
+    elif args.meshing.startswith('poisson'):
+        if args.meshing == 'poisson':
+            depth = 8
+        else:
+            depth = int(args.meshing.split('-')[1])
+        mesh = mesh_poisson(pcd, depth=depth)
+        o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
+    elif args.meshing == 'None':
+        print("Skipping meshing as requested.")
+    else:
+        print(f"Unknown meshing method: {args.meshing}")
+
 if __name__ == '__main__':
     main()

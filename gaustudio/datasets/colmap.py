@@ -116,21 +116,20 @@ class ColmapDatasetBase:
                 bg_mask = cv2.bitwise_not(mask) # Invert the mask to get the background
                 bg_image = cv2.bitwise_and(_image, _image, mask=bg_mask)
                 _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
-                bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
+                _bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
                 _mask_tensor = torch.from_numpy(mask) / 255
-                _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), 
-                                          image_width=width, image_height=height, image=_image_tensor, image_path=image_path, 
-                                          bg_image=bg_image_tensor, mask=_mask_tensor, depth=depth_tensor)
             else:
+                _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
+                _mask_tensor = torch.ones((height, width))
                 if self.white_background:
-                    bg_image_tensor = torch.ones((height, width, 3))
+                    _bg_image_tensor = torch.ones((height, width, 3))
                 else:
-                    bg_image_tensor = torch.zeros((height, width, 3))
-                _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, 
-                                          image_width=width, image_height=height, bg_image=bg_image_tensor,
-                                          principal_point_ndc=np.array([cx / width, cy /height]), depth=depth_tensor)
-                if self.resolution > 1:
-                    _camera.downsample_scale(self.resolution)
+                    _bg_image_tensor = torch.zeros((height, width, 3))
+            _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), image_path=image_path, 
+                                          image_width=width, image_height=height, principal_point_ndc=np.array([cx / width, cy /height]), 
+                                          image=_image_tensor, bg_image=_bg_image_tensor, mask=_mask_tensor, depth=depth_tensor)
+            if self.resolution > 1:
+                _camera.downsample_scale(self.resolution)
             all_cameras_unsorted.append(_camera)
 
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 

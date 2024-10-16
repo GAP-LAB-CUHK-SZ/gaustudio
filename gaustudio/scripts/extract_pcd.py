@@ -43,10 +43,16 @@ def mesh_nksr(input_xyz, input_normal, voxel_size=0.04, detail_level=0):
     mesh = field.extract_dual_mesh(mise_iter=2)
     return trimesh.Trimesh(vertices=mesh.v.cpu().numpy(), faces=mesh.f.cpu().numpy())
 
-def mesh_poisson(pcd, depth=8, width=0, scale=1.1, linear_fit=False):
+def mesh_poisson(pcd, depth=8,  density_threshold=0.01):
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        pcd, depth=depth, width=width, scale=scale, linear_fit=linear_fit
-    )
+        pcd, depth=depth, width=0, scale=1.1, linear_fit=False)
+
+    densities = np.asarray(densities)
+    densities = (densities - densities.min()) / (densities.max() - densities.min())
+
+    vertices_to_remove = densities < np.quantile(densities, density_threshold)
+    mesh.remove_vertices_by_mask(vertices_to_remove)
+    mesh.compute_triangle_normals()
     return mesh
     
 def main():

@@ -7,51 +7,50 @@
 from copy import deepcopy
 import torch
 import os
+import urllib.parse
 from packaging import version
 import huggingface_hub
 
-from .utils.misc import (
-    fill_default_args,
-    freeze_all_params,
-    is_symmetrized,
-    interleave,
-    transpose_to_landscape,
-)
+from .utils.misc import fill_default_args, freeze_all_params, is_symmetrized, interleave, transpose_to_landscape
 from .heads import head_factory
 from mini_dust3r.patch_embed import get_patch_embed
 
 from mini_dust3r.croco.croco import CroCoNet
 
-inf = float("inf")
+inf = float('inf')
 
 hf_version_number = huggingface_hub.__version__
-assert version.parse(hf_version_number) >= version.parse(
-    "0.22.0"
-), "Outdated huggingface_hub version, please reinstall requirements.txt"
+assert version.parse(hf_version_number) >= version.parse("0.22.0"), "Outdated huggingface_hub version, please reinstall requirements.txt"
 
 
-def load_model(model_path, device, verbose=True):
+def load_model(model_path_or_url, device='cpu', landscape_only=False, verbose=True):
     if verbose:
-        print("... loading model from", model_path)
-    ckpt = torch.load(model_path, map_location="cpu")
-    args = ckpt["args"].model.replace("ManyAR_PatchEmbed", "PatchEmbedDust3R")
-    if "landscape_only" not in args:
-        args = args[:-1] + ", landscape_only=False)"
+        print('... loading model from', model_path_or_url)
+    is_url = urllib.parse.urlparse(model_path_or_url).scheme in ('http', 'https')
+    
+    if is_url:
+        ckpt = torch.hub.load_state_dict_from_url(model_path_or_url, map_location='cpu', progress=verbose)
     else:
-        args = args.replace(" ", "").replace(
-            "landscape_only=True", "landscape_only=False"
-        )
+        ckpt = torch.load(model_path_or_url, map_location='cpu')
+    args = ckpt['args'].model.replace("ManyAR_PatchEmbed", "PatchEmbedDust3R")
+    if 'landscape_only' not in args:
+        args = args[:-1] + ', landscape_only=False)'
+    else:
+        args = args.replace(" ", "").replace('landscape_only=True', 'landscape_only=False')
     assert "landscape_only=False" in args
+
+    if landscape_only:
+        args = args.replace('landscape_only=False', 'landscape_only=True')
     if verbose:
         print(f"instantiating : {args}")
     net = eval(args)
-    s = net.load_state_dict(ckpt["model"], strict=False)
+    s = net.load_state_dict(ckpt['model'], strict=False)
     if verbose:
         print(s)
     return net.to(device)
 
 
-class AsymmetricCroCo3DStereo(
+class AsymmetricCroCo3DStereo (
     CroCoNet,
     huggingface_hub.PyTorchModelHubMixin,
     library_name="dust3r",
@@ -92,12 +91,10 @@ class AsymmetricCroCo3DStereo(
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kw):
-        if os.path.isfile(pretrained_model_name_or_path):
-            return load_model(pretrained_model_name_or_path, device="cpu")
+        if os.path.isfile(pretrained_model_name_or_path) or urllib.parse.urlparse(pretrained_model_name_or_path).scheme in ('http', 'https'):
+            return load_model(pretrained_model_name_or_path, device='cpu', landscape_only=False)
         else:
-            return super(AsymmetricCroCo3DStereo, cls).from_pretrained(
-                pretrained_model_name_or_path, **kw
-            )
+            return super(AsymmetricCroCo3DStereo, cls).from_pretrained(pretrained_model_name_or_path, **kw)
 
     def _set_patch_embed(self, img_size=224, patch_size=16, enc_embed_dim=768):
         self.patch_embed = get_patch_embed(
@@ -187,29 +184,21 @@ class AsymmetricCroCo3DStereo(
         return out, out2, pos, pos2
 
     def _encode_symmetrized(self, view1, view2):
-        img1 = view1["img"]
-        img2 = view2["img"]
+        img1 = view1['img']
+        img2 = view2['img']
         B = img1.shape[0]
         # Recover true_shape when available, otherwise assume that the img shape is the true one
-        shape1 = view1.get(
-            "true_shape", torch.tensor(img1.shape[-2:])[None].repeat(B, 1)
-        )
-        shape2 = view2.get(
-            "true_shape", torch.tensor(img2.shape[-2:])[None].repeat(B, 1)
-        )
+        shape1 = view1.get('true_shape', torch.tensor(img1.shape[-2:])[None].repeat(B, 1))
+        shape2 = view2.get('true_shape', torch.tensor(img2.shape[-2:])[None].repeat(B, 1))
         # warning! maybe the images have different portrait/landscape orientations
 
         if is_symmetrized(view1, view2):
-            # computing half of forward pass!'
-            feat1, feat2, pos1, pos2 = self._encode_image_pairs(
-                img1[::2], img2[::2], shape1[::2], shape2[::2]
-            )
+            # computing half of forward pass!' Half of the batch as using shared weights
+            feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1[::2], img2[::2], shape1[::2], shape2[::2])
             feat1, feat2 = interleave(feat1, feat2)
             pos1, pos2 = interleave(pos1, pos2)
         else:
-            feat1, feat2, pos1, pos2 = self._encode_image_pairs(
-                img1, img2, shape1, shape2
-            )
+            feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2)
 
         return (shape1, shape2), (feat1, feat2), (pos1, pos2)
 
@@ -237,14 +226,12 @@ class AsymmetricCroCo3DStereo(
     def _downstream_head(self, head_num, decout, img_shape):
         B, S, D = decout[-1].shape
         # img_shape = tuple(map(int, img_shape))
-        head = getattr(self, f"head{head_num}")
+        head = getattr(self, f'head{head_num}')
         return head(decout, img_shape)
 
     def forward(self, view1, view2):
         # encode the two images --> B,S,D
-        (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode_symmetrized(
-            view1, view2
-        )
+        (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode_symmetrized(view1, view2)
 
         # combine all ref images into object-centric representation
         dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2)
@@ -253,7 +240,5 @@ class AsymmetricCroCo3DStereo(
             res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1)
             res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2)
 
-        res2["pts3d_in_other_view"] = res2.pop(
-            "pts3d"
-        )  # predict view2's pts3d in view1's frame
+        res2['pts3d_in_other_view'] = res2.pop('pts3d')  # predict view2's pts3d in view1's frame
         return res1, res2

@@ -54,6 +54,10 @@ class MvsnetDatasetBase:
         self.source_path = Path(config['source_path'])
         
         self.image_dir = self.source_path / "blended_images"
+        if self.image_dir.exists() is False:
+            self.image_dir = self.source_path / "images"
+        if self.image_dir.exists() is False:
+            raise ValueError("No image directory found")
         self.camera_dir = self.source_path /  "cams" 
         self.image_filenames = sorted([os.path.join(self.image_dir, f) for f in os.listdir(self.image_dir)],
                                       key=lambda fn: int(os.path.splitext(os.path.basename(fn))[0]))

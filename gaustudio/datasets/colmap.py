@@ -22,11 +22,16 @@ class ColmapDatasetBase:
         self.path = Path(config['source_path'])
         self.white_background = config.get('white_background', False)
         self.images_dir = self.path / config.get('images', 'images')
-        self.masks_dir = self.path / config.get('masks', 'masks')
         self.sparse_dir = self.path / config.get('sparse', 'sparse')
         self.depths_dir = self.path / config.get('depths', 'depths')
         self.resolution = config.get('resolution', 1)
-        self.w_mask = config.get('w_mask', False)
+        
+        if config.get('masks') is not None:
+            self.masks_dir = self.path / config.get('masks')
+            self.w_mask = True
+        else:
+            self.masks_dir = None
+            self.w_mask = config.get('w_mask', False)
         self.eval = config.get('eval', False)
         self._initialize()
     
@@ -99,13 +104,16 @@ class ColmapDatasetBase:
                 depth_tensor = torch.from_numpy(depth_tensor).float()
             else:
                 depth_tensor = None
-                
-            mask_path_png = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.png')
-            mask_path_jpg = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.jpg')
-            if mask_path_png.exists():
-                mask_path = mask_path_png
-            elif mask_path_jpg.exists():
-                mask_path = mask_path_jpg
+            
+            if self.w_mask:
+                mask_path_png = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.png')
+                mask_path_jpg = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.jpg')
+                if mask_path_png.exists():
+                    mask_path = mask_path_png
+                elif mask_path_jpg.exists():
+                    mask_path = mask_path_jpg
+                else:
+                    mask_path = None
             else:
                 mask_path = None
                 

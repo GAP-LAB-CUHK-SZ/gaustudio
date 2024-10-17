@@ -68,7 +68,7 @@ def main():
     parser.add_argument('--model', '-m', default=None, help='path to the model')
     parser.add_argument('--output-dir', '-o', default=None, help='path to the output dir')
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')
-    parser.add_argument('--resolution', default=2, type=int, help='downscale resolution')
+    parser.add_argument('--resolution', default=1, type=int, help='downscale resolution')
     parser.add_argument('--sh', default=0, type=int, help='default SH degree')
     parser.add_argument('--white_background', action='store_true', help='use white background')
     parser.add_argument('--clean', action='store_true', help='perform a clean operation')
@@ -141,11 +141,15 @@ def main():
         
         rendering = render_pkg["render"]
         rendered_final_opacity = render_pkg["rendered_final_opacity"][0]
-        rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
-        cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
-        normals = camera.normal2worldnormal(cam_normals)
+        if "rendered_normal" in render_pkg.keys():
+            normals = -1 * render_pkg["rendered_normal"].permute(1, 2, 0)
+            cam_normals = camera.worldnormal2normal(normals)
+        else:
+            rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
+            cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
+            normals = camera.normal2worldnormal(cam_normals)        
         median_point_depths = render_pkg["rendered_median_depth"][0]
-        median_point_ids = render_pkg["rendered_median_depth"][2].int()
+        median_point_ids = render_pkg["rendered_median_id"][0]
         
         fg_mask = rendered_final_opacity > 0.1
         valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.5)

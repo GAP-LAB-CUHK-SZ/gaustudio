@@ -25,9 +25,28 @@ def create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np):
     pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
     return pcd
 
+def remove_normal_outliers(pcd, nb_neighbors=20, angle_threshold=np.pi/4):
+    normals = np.asarray(pcd.normals)
+    
+    pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+    inlier_indices = []
+    
+    for i in range(len(pcd.points)):
+        [_, idx, _] = pcd_tree.search_knn_vector_3d(pcd.points[i], nb_neighbors)
+        neighbor_normals = normals[idx[1:]]  # Exclude the point itself
+        angles = np.arccos(np.abs(np.dot(neighbor_normals, normals[i])))
+        if np.mean(angles) < angle_threshold:
+            inlier_indices.append(i)
+    
+    return pcd.select_by_index(inlier_indices)
+
 def clean_point_cloud(pcd, nb_neighbors=50, std_ratio=2.0):
     cl, ind = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
-    return pcd.select_by_index(ind)
+    pcd_clean = pcd.select_by_index(ind)
+    
+    pcd_clean = remove_normal_outliers(pcd_clean)
+    
+    return pcd_clean
 
 def mesh_nksr(input_xyz, input_normal, voxel_size=0.008, detail_level=0):
     try:
@@ -140,19 +159,15 @@ def main():
             render_pkg = renderer.render(camera, pcd)
         
         rendering = render_pkg["render"]
-        rendered_final_opacity = render_pkg["rendered_final_opacity"][0]
-        if "rendered_normal" in render_pkg.keys():
-            normals = -1 * render_pkg["rendered_normal"].permute(1, 2, 0)
-            cam_normals = camera.worldnormal2normal(normals)
-        else:
-            rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
-            cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
-            normals = camera.normal2worldnormal(cam_normals)        
+        rendered_final_opacity = render_pkg["rendered_final_opacity"][0] 
+        rendered_depth = render_pkg["rendered_depth"][0]
+        cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
+        normals = camera.normal2worldnormal(cam_normals)
         median_point_depths = render_pkg["rendered_median_depth"][0]
         median_point_ids = render_pkg["rendered_median_id"][0]
         
         fg_mask = rendered_final_opacity > 0.1
-        valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.5)
+        valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.95)
         valid_mask = (normals.sum(dim=-1) > -3) & valid_mask
 
         median_point_ids = median_point_ids[valid_mask]
@@ -225,6 +240,9 @@ def main():
         else:
             depth = int(args.meshing.split('-')[1])
         mesh = mesh_poisson(pcd, depth=depth)
+        o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
+    elif args.meshing.startswith('sap'):
+        mesh = mesh_sap(pcd)
         o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
     elif args.meshing == 'None':
         print("Skipping meshing as requested.")

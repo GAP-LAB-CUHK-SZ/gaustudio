@@ -38,7 +38,7 @@ class BaseRenderer:
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
         
         # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-        rendered_image, radii, rendered_depth, rendered_median_depth, rendered_final_opacity = rasterizer(
+        rendered_image, radii, rendered_depth, rendered_median_map, rendered_final_opacity = rasterizer(
             means3D = xyz,
             means2D = screenspace_points,
             shs = shs,
@@ -48,9 +48,15 @@ class BaseRenderer:
             rotations = rotations,
             cov3D_precomp = cov3D_precomp)
         
+        rendered_median_depth = rendered_median_map[0:1]
+        rendered_median_weight = rendered_median_map[1:2]
+        rendered_median_id = rendered_median_map[2:3].int()
+        
         return {"render": rendered_image,
                 "rendered_depth": rendered_depth,
                 "rendered_median_depth": rendered_median_depth,
+                "rendered_median_weight": rendered_median_weight,
+                "rendered_median_id": rendered_median_id,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "rendered_final_opacity": rendered_final_opacity,

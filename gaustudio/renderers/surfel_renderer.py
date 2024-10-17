@@ -109,9 +109,18 @@ class SurfelRenderer:
         render_depth_expected = (render_depth_expected / render_alpha)
         render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
         
+        if len(allmap) > 7:
+            rendered_median_weight = allmap[7:8]
+            rendered_median_id = allmap[8:9].int()
+        else:
+            rendered_median_weight = None
+            rendered_median_id = None
         return {"render": rendered_image,
+                "rendered_normal": render_normal,
                 "rendered_depth": render_depth_expected,
                 "rendered_median_depth": render_depth_median,
+                "rendered_median_weight": rendered_median_weight,
+                "rendered_median_id": rendered_median_id,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "rendered_final_opacity": render_alpha,

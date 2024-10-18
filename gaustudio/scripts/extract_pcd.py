@@ -5,6 +5,7 @@ import torchvision
 import trimesh
 import argparse
 
+from scipy.spatial import cKDTree
 from tqdm import tqdm
 import numpy as np
 import open3d as o3d
@@ -25,9 +26,28 @@ def create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np):
     pcd.normals = o3d.utility.Vector3dVector(surface_normal_np)
     return pcd
 
+def remove_normal_outliers(pcd, nb_neighbors=20, angle_threshold=np.pi/4):
+    normals = np.asarray(pcd.normals)
+    
+    pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+    inlier_indices = []
+    
+    for i in range(len(pcd.points)):
+        [_, idx, _] = pcd_tree.search_knn_vector_3d(pcd.points[i], nb_neighbors)
+        neighbor_normals = normals[idx[1:]]  # Exclude the point itself
+        angles = np.arccos(np.abs(np.dot(neighbor_normals, normals[i])))
+        if np.mean(angles) < angle_threshold:
+            inlier_indices.append(i)
+    
+    return pcd.select_by_index(inlier_indices)
+
 def clean_point_cloud(pcd, nb_neighbors=50, std_ratio=2.0):
     cl, ind = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
-    return pcd.select_by_index(ind)
+    pcd_clean = pcd.select_by_index(ind)
+    
+    pcd_clean = remove_normal_outliers(pcd_clean)
+    
+    return pcd_clean
 
 def mesh_nksr(input_xyz, input_normal, voxel_size=0.008, detail_level=0):
     try:
@@ -60,6 +80,83 @@ def mesh_sap(pcd):
     mesh = sap_pcd.to_o3d_mesh()
     return mesh
 
+def normal_fusion(pcd, all_ids_list, all_normals_list, all_confidences_list, cameras):
+    device = pcd._xyz.device
+    unique_ids, inverse_indices = torch.unique(torch.cat(all_ids_list), return_inverse=True)
+    num_unique_ids = len(unique_ids)
+    
+    sum_normals = torch.zeros((num_unique_ids, 3), device=device)
+    sum_weights = torch.zeros(num_unique_ids, device=device)
+    
+    start_idx = 0
+    for ids, normals, confidences, camera in zip(all_ids_list, all_normals_list, all_confidences_list, cameras):
+        # Compute view-dependent weights
+        view_dir = camera.extrinsics[:3, 3].to(device) - pcd._xyz[ids]
+        view_dir = view_dir / torch.norm(view_dir, dim=1, keepdim=True)
+        view_weights = torch.abs(torch.sum(view_dir * normals, dim=1))
+        
+        distances = torch.norm(camera.extrinsics[:3, 3].to(device) - pcd._xyz[ids], dim=1)
+        distance_weights = 1 / (distances + 1e-6)
+        
+        # Combine weights
+        weights = confidences * view_weights * distance_weights
+        
+        # Accumulate weighted normals
+        end_idx = start_idx + len(ids)
+        sum_normals.index_add_(0, inverse_indices[start_idx:end_idx], normals * weights.unsqueeze(1))
+        sum_weights.index_add_(0, inverse_indices[start_idx:end_idx], weights)
+        
+        start_idx = end_idx
+    
+    # Compute mean normals
+    mean_normals = sum_normals / sum_weights.unsqueeze(1)
+    mean_normals = torch.nn.functional.normalize(mean_normals, p=2, dim=1)
+    
+    # Consistency checking and recomputation
+    start_idx = 0
+    sum_normals.zero_()
+    sum_weights.zero_()
+    for ids, normals, confidences, camera in zip(all_ids_list, all_normals_list, all_confidences_list, cameras):
+        view_dir = camera.extrinsics[:3, 3].to(device) - pcd._xyz[ids]
+        view_dir = view_dir / torch.norm(view_dir, dim=1, keepdim=True)
+        view_weights = torch.abs(torch.sum(view_dir * normals, dim=1))
+        
+        distances = torch.norm(camera.extrinsics[:3, 3].to(device) - pcd._xyz[ids], dim=1)
+        distance_weights = 1 / (distances + 1e-6)
+        
+        weights = confidences * view_weights * distance_weights
+        
+        end_idx = start_idx + len(ids)
+        current_inverse_indices = inverse_indices[start_idx:end_idx]
+        
+        normal_diff = torch.norm(normals - mean_normals[current_inverse_indices], dim=1)
+        consistency_mask = normal_diff < 0.8  # Adjust threshold as needed
+        
+        sum_normals.index_add_(0, current_inverse_indices[consistency_mask], 
+                               normals[consistency_mask] * weights[consistency_mask].unsqueeze(1))
+        sum_weights.index_add_(0, current_inverse_indices[consistency_mask], weights[consistency_mask])
+        
+        start_idx = end_idx
+    
+    mean_normals = sum_normals / sum_weights.unsqueeze(1)
+    mean_normals = torch.nn.functional.normalize(mean_normals, p=2, dim=1)
+    
+    # Spatial smoothing (you might want to move this to GPU for large point clouds)
+    surface_xyz = pcd._xyz[unique_ids].cpu().numpy()
+    tree = cKDTree(surface_xyz)
+    k = 10  # number of neighbors
+    distances, indices = tree.query(surface_xyz, k=k)
+    
+    smoothed_normals = torch.zeros_like(mean_normals)
+    for i in range(num_unique_ids):
+        neighbor_normals = mean_normals[indices[i]]
+        smooth_weights = torch.exp(-torch.tensor(distances[i], device=device) / 0.1)  # Adjust sigma as needed
+        smoothed_normals[i] = torch.sum(neighbor_normals * smooth_weights.unsqueeze(1), dim=0)
+    
+    smoothed_normals = torch.nn.functional.normalize(smoothed_normals, p=2, dim=1)
+    
+    return unique_ids, smoothed_normals
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
@@ -73,7 +170,7 @@ def main():
     parser.add_argument('--white_background', action='store_true', help='use white background')
     parser.add_argument('--clean', action='store_true', help='perform a clean operation')
     parser.add_argument('--meshing', choices=['nksr', 'poisson', 'sap', \
-                                              'poisson-8', 'poisson-9', None], 
+                                              'poisson-9', None], 
                         default='nksr', help='Meshing method to use')
     args, extras = parser.parse_known_args()
     
@@ -131,6 +228,7 @@ def main():
 
     scene_radius = getNerfppNorm(cameras)["radius"]
     all_ids = []
+    all_confidances = []
     all_normals = []
 
     for camera in tqdm(cameras):
@@ -140,14 +238,10 @@ def main():
             render_pkg = renderer.render(camera, pcd)
         
         rendering = render_pkg["render"]
-        rendered_final_opacity = render_pkg["rendered_final_opacity"][0]
-        if "rendered_normal" in render_pkg.keys():
-            normals = -1 * render_pkg["rendered_normal"].permute(1, 2, 0)
-            cam_normals = camera.worldnormal2normal(normals)
-        else:
-            rendered_depth = render_pkg["rendered_depth"][0] / rendered_final_opacity
-            cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
-            normals = camera.normal2worldnormal(cam_normals)        
+        rendered_final_opacity = render_pkg["rendered_final_opacity"][0] 
+        rendered_depth = render_pkg["rendered_depth"][0]
+        cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
+        normals = camera.normal2worldnormal(cam_normals)
         median_point_depths = render_pkg["rendered_median_depth"][0]
         median_point_ids = render_pkg["rendered_median_id"][0]
         
@@ -157,7 +251,9 @@ def main():
 
         median_point_ids = median_point_ids[valid_mask]
         median_point_normals = -normals[valid_mask]
+        median_point_confidances = rendered_final_opacity[valid_mask]
         
+        all_confidances.append(median_point_confidances)
         all_ids.append(median_point_ids)
         all_normals.append(median_point_normals)
 
@@ -186,23 +282,12 @@ def main():
             f.write(s2 + s1[:-1] + '\n')
             f.write(f"{flen} 0 0 {paspect} {ppx} {ppy}\n")
 
-    all_ids = torch.cat(all_ids, dim=0)
-    all_normals = torch.cat(all_normals, dim=0)
-    
     # fusion
-    unique_ids, inverse_indices = torch.unique(all_ids, return_inverse=True)
-    
-    num_unique_ids = len(unique_ids)
-    sum_normals = torch.zeros((num_unique_ids, all_normals.size(1)), device=all_normals.device)
-    counts = torch.zeros(num_unique_ids, device=all_ids.device)
-    sum_normals.index_add_(0, inverse_indices, all_normals)
-    counts.index_add_(0, inverse_indices, torch.ones_like(inverse_indices, dtype=torch.float))
-    mean_normals = sum_normals / counts.unsqueeze(1)
-    mean_normals = torch.nn.functional.normalize(mean_normals, p=2, dim=1)
+    unique_ids, fused_normals = normal_fusion(pcd, all_ids, all_normals, all_confidances, cameras)
 
     surface_xyz = pcd._xyz[unique_ids]
     surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
-    surface_normal = mean_normals
+    surface_normal = fused_normals
     
     surface_xyz_np = surface_xyz.cpu().numpy()
     surface_color_np = surface_color.cpu().numpy()
@@ -225,6 +310,9 @@ def main():
         else:
             depth = int(args.meshing.split('-')[1])
         mesh = mesh_poisson(pcd, depth=depth)
+        o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
+    elif args.meshing.startswith('sap'):
+        mesh = mesh_sap(pcd)
         o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
     elif args.meshing == 'None':
         print("Skipping meshing as requested.")

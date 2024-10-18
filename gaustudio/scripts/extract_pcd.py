@@ -74,11 +74,12 @@ def mesh_poisson(pcd, depth=8,  density_threshold=0.01):
     mesh.remove_vertices_by_mask(vertices_to_remove)
     return mesh
 
-def mesh_pymeshlab_poisson(pcd_path, depth=8):
+def mesh_pymeshlab_poisson(pcd_path, depth=8, smooth_iterations=3, smooth_lambda=0.5, clean_threshold=10):
     try:
         import pymeshlab
-    except:
-        raise ImportError("Please install nksr to use this feature.")
+    except ImportError:
+        raise ImportError("Please install pymeshlab to use this feature.")
+
     # Create a new MeshSet
     ms = pymeshlab.MeshSet()
 
@@ -89,7 +90,31 @@ def mesh_pymeshlab_poisson(pcd_path, depth=8):
     ms.apply_filter('generate_surface_reconstruction_screened_poisson', 
                     depth=depth)
 
-    # Get the reconstructed mesh
+    # Get the current mesh
+    # mesh = ms.current_mesh()
+
+    # # Get vertex qualities (related to point density)
+    # vertex_qualities = mesh.vertex_quality()
+
+    # # Calculate density threshold based on percentile
+    # density_threshold = np.percentile(vertex_qualities, density_percentile)
+
+    # # Remove faces with low density
+    # ms.apply_filter('conditional_face_selection', 
+    #                 condselect=f"(quality0 < {density_threshold}) || (quality1 < {density_threshold}) || (quality2 < {density_threshold})")
+    # ms.apply_filter('delete_selected_faces')
+
+    # Remove unreferenced vertices
+    # ms.apply_filter('remove_unreferenced_vertices')
+
+    # Smooth the mesh using Laplacian smoothing
+    ms.apply_filter('apply_coord_laplacian_smoothing', 
+                    stepsmoothnum=smooth_iterations)
+
+    # Optional: Fill holes
+    # ms.apply_filter('close_holes', maxholesize=50)
+
+    # Get the final reconstructed mesh
     reconstructed_mesh = ms.current_mesh()
 
     # Convert pymeshlab mesh to trimesh
@@ -174,7 +199,11 @@ def normal_fusion(pcd, all_ids_list, all_normals_list, all_confidences_list, cam
     smoothed_normals = torch.zeros_like(mean_normals)
     for i in range(num_unique_ids):
         neighbor_normals = mean_normals[indices[i]]
-        smooth_weights = torch.exp(-torch.tensor(distances[i], device=device) / 0.1)  # Adjust sigma as needed
+        spatial_weights = torch.exp(-torch.tensor(distances[i], device=device) / 0.1)
+        normal_diff = torch.norm(neighbor_normals - mean_normals[i], dim=1)
+        normal_weights = torch.exp(-normal_diff / 0.5)
+        smooth_weights = spatial_weights * normal_weights
+        smooth_weights = smooth_weights / smooth_weights.sum()
         smoothed_normals[i] = torch.sum(neighbor_normals * smooth_weights.unsqueeze(1), dim=0)
     
     smoothed_normals = torch.nn.functional.normalize(smoothed_normals, p=2, dim=1)
@@ -283,9 +312,9 @@ def main():
         all_ids.append(median_point_ids)
         all_normals.append(median_point_normals)
 
-        torchvision.utils.save_image(rendering, os.path.join(render_path, f"{camera.image_name}.png"))
-        torchvision.utils.save_image((cam_normals.permute(2, 0, 1) + 1)/2, os.path.join(normal_path, f"{camera.image_name}.png"))
-        torchvision.utils.save_image(fg_mask.float(), os.path.join(mask_path, f"{camera.image_name}.png"))
+        # torchvision.utils.save_image(rendering, os.path.join(render_path, f"{camera.image_name}.png"))
+        # torchvision.utils.save_image((cam_normals.permute(2, 0, 1) + 1)/2, os.path.join(normal_path, f"{camera.image_name}.png"))
+        # torchvision.utils.save_image(fg_mask.float(), os.path.join(mask_path, f"{camera.image_name}.png"))
 
         # Save camera information
         cam_path = os.path.join(render_path, f"{camera.image_name}.cam")
@@ -309,21 +338,21 @@ def main():
             f.write(f"{flen} 0 0 {paspect} {ppx} {ppy}\n")
 
     # fusion
-    unique_ids, fused_normals = normal_fusion(pcd, all_ids, all_normals, all_confidances, cameras)
+    # unique_ids, fused_normals = normal_fusion(pcd, all_ids, all_normals, all_confidances, cameras)
 
-    surface_xyz = pcd._xyz[unique_ids]
-    surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
-    surface_normal = fused_normals
+    # surface_xyz = pcd._xyz[unique_ids]
+    # surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
+    # surface_normal = fused_normals
     
-    surface_xyz_np = surface_xyz.cpu().numpy()
-    surface_color_np = surface_color.cpu().numpy()
-    surface_normal_np = surface_normal.cpu().numpy()
-    pcd = create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np)
+    # surface_xyz_np = surface_xyz.cpu().numpy()
+    # surface_color_np = surface_color.cpu().numpy()
+    # surface_normal_np = surface_normal.cpu().numpy()
+    # pcd = create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np)
     
-    pcd = clean_point_cloud(pcd)
-    print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
+    # pcd = clean_point_cloud(pcd)
+    # print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
 
-    o3d.io.write_point_cloud(output_pcd_path, pcd)
+    # o3d.io.write_point_cloud(output_pcd_path, pcd)
     
     if args.meshing == 'nksr':
         input_xyz = torch.from_numpy(np.asarray(pcd.points)).float()

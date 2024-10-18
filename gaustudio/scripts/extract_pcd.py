@@ -74,6 +74,30 @@ def mesh_poisson(pcd, depth=8,  density_threshold=0.01):
     mesh.remove_vertices_by_mask(vertices_to_remove)
     return mesh
 
+def mesh_pymeshlab_poisson(pcd_path, depth=8):
+    try:
+        import pymeshlab
+    except:
+        raise ImportError("Please install nksr to use this feature.")
+    # Create a new MeshSet
+    ms = pymeshlab.MeshSet()
+
+    # Load the point cloud directly using pymeshlab
+    ms.load_new_mesh(pcd_path)
+
+    # Apply Poisson surface reconstruction with tunable parameters
+    ms.apply_filter('generate_surface_reconstruction_screened_poisson', 
+                    depth=depth)
+
+    # Get the reconstructed mesh
+    reconstructed_mesh = ms.current_mesh()
+
+    # Convert pymeshlab mesh to trimesh
+    vertices = reconstructed_mesh.vertex_matrix()
+    faces = reconstructed_mesh.face_matrix()
+    
+    return trimesh.Trimesh(vertices=vertices, faces=faces)
+
 def mesh_sap(pcd):
     from gaustudio.models import ShapeAsPoints
     sap_pcd = ShapeAsPoints.from_o3d_pointcloud(pcd)
@@ -170,7 +194,7 @@ def main():
     parser.add_argument('--white_background', action='store_true', help='use white background')
     parser.add_argument('--clean', action='store_true', help='perform a clean operation')
     parser.add_argument('--meshing', choices=['nksr', 'poisson', 'sap', \
-                                              'poisson-9', None], 
+                                              'poisson-9', 'pymeshlab-poisson', None], 
                         default='nksr', help='Meshing method to use')
     args, extras = parser.parse_known_args()
     
@@ -199,9 +223,11 @@ def main():
         
         print("Loading trained model at iteration {}".format(loaded_iter))
         pcd.load(os.path.join(args.model,"point_cloud", "iteration_" + str(loaded_iter), "point_cloud.ply"))
+        output_pcd_path = os.path.join(work_dir, "fused.ply")
     elif model_path.endswith(".ply"):
         work_dir = os.path.join(os.path.dirname(model_path), os.path.basename(model_path)[:-4]) if args.output_dir is None else args.output_dir
         pcd.load(model_path)
+        output_pcd_path = model_path[:-4] + "_fused.ply"
     else:
         print("Model not found at {}".format(model_path))
     pcd.to("cuda")
@@ -297,7 +323,7 @@ def main():
     pcd = clean_point_cloud(pcd)
     print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
 
-    o3d.io.write_point_cloud(os.path.join(work_dir, "fused.ply"), pcd)
+    o3d.io.write_point_cloud(output_pcd_path, pcd)
     
     if args.meshing == 'nksr':
         input_xyz = torch.from_numpy(np.asarray(pcd.points)).float()
@@ -314,6 +340,9 @@ def main():
     elif args.meshing.startswith('sap'):
         mesh = mesh_sap(pcd)
         o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
+    elif args.meshing == 'pymeshlab-poisson':
+        mesh = mesh_pymeshlab_poisson(output_pcd_path)
+        mesh.export(os.path.join(work_dir, "fused_mesh.ply"))
     elif args.meshing == 'None':
         print("Skipping meshing as requested.")
     else:

@@ -90,29 +90,9 @@ def mesh_pymeshlab_poisson(pcd_path, depth=8, smooth_iterations=3, smooth_lambda
     ms.apply_filter('generate_surface_reconstruction_screened_poisson', 
                     depth=depth)
 
-    # Get the current mesh
-    # mesh = ms.current_mesh()
-
-    # # Get vertex qualities (related to point density)
-    # vertex_qualities = mesh.vertex_quality()
-
-    # # Calculate density threshold based on percentile
-    # density_threshold = np.percentile(vertex_qualities, density_percentile)
-
-    # # Remove faces with low density
-    # ms.apply_filter('conditional_face_selection', 
-    #                 condselect=f"(quality0 < {density_threshold}) || (quality1 < {density_threshold}) || (quality2 < {density_threshold})")
-    # ms.apply_filter('delete_selected_faces')
-
-    # Remove unreferenced vertices
-    # ms.apply_filter('remove_unreferenced_vertices')
-
     # Smooth the mesh using Laplacian smoothing
     ms.apply_filter('apply_coord_laplacian_smoothing', 
                     stepsmoothnum=smooth_iterations)
-
-    # Optional: Fill holes
-    # ms.apply_filter('close_holes', maxholesize=50)
 
     # Get the final reconstructed mesh
     reconstructed_mesh = ms.current_mesh()
@@ -210,6 +190,56 @@ def normal_fusion(pcd, all_ids_list, all_normals_list, all_confidences_list, cam
     
     return unique_ids, smoothed_normals
 
+def clean_mesh(input_cloud_path, mesh_path, relative_distance_threshold=0.01):
+    # Load input point cloud
+    input_cloud = o3d.io.read_point_cloud(input_cloud_path)
+    input_points = np.asarray(input_cloud.points)
+
+    # Load input mesh
+    mesh = o3d.io.read_triangle_mesh(mesh_path)
+    
+    # Get mesh vertices
+    mesh_vertices = np.asarray(mesh.vertices)
+
+    # Calculate mesh scale (using bounding box diagonal)
+    bbox = mesh.get_axis_aligned_bounding_box()
+    mesh_scale = np.linalg.norm(bbox.get_max_bound() - bbox.get_min_bound())
+
+    # Calculate absolute distance threshold based on mesh scale
+    distance_threshold = relative_distance_threshold * mesh_scale
+
+    # Create KD-tree from input points
+    kdtree = cKDTree(input_points)
+
+    # Find nearest neighbors for mesh vertices
+    distances, _ = kdtree.query(mesh_vertices)
+
+    # Identify outliers
+    is_outlier = distances > distance_threshold
+
+    # Create clean vertices
+    clean_vertices = mesh_vertices[~is_outlier]
+
+    # Create mapping from old indices to new indices
+    old_to_new = np.cumsum(~is_outlier) - 1
+    old_to_new[is_outlier] = -1
+
+    # Update triangle indices
+    triangles = np.asarray(mesh.triangles)
+    valid_triangles = np.all(old_to_new[triangles] != -1, axis=1)
+    clean_triangles = old_to_new[triangles[valid_triangles]]
+
+    # Create clean mesh
+    clean_mesh = o3d.geometry.TriangleMesh()
+    clean_mesh.vertices = o3d.utility.Vector3dVector(clean_vertices)
+    clean_mesh.triangles = o3d.utility.Vector3iVector(clean_triangles)
+
+    # Remove degenerate triangles
+    clean_mesh.remove_degenerate_triangles()
+    clean_mesh.remove_unreferenced_vertices()
+
+    return clean_mesh
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
@@ -338,21 +368,21 @@ def main():
             f.write(f"{flen} 0 0 {paspect} {ppx} {ppy}\n")
 
     # fusion
-    # unique_ids, fused_normals = normal_fusion(pcd, all_ids, all_normals, all_confidances, cameras)
+    unique_ids, fused_normals = normal_fusion(pcd, all_ids, all_normals, all_confidances, cameras)
 
-    # surface_xyz = pcd._xyz[unique_ids]
-    # surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
-    # surface_normal = fused_normals
+    surface_xyz = pcd._xyz[unique_ids]
+    surface_color = SH2RGB(pcd._f_dc[unique_ids]).clip(0,1)
+    surface_normal = fused_normals
     
-    # surface_xyz_np = surface_xyz.cpu().numpy()
-    # surface_color_np = surface_color.cpu().numpy()
-    # surface_normal_np = surface_normal.cpu().numpy()
-    # pcd = create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np)
+    surface_xyz_np = surface_xyz.cpu().numpy()
+    surface_color_np = surface_color.cpu().numpy()
+    surface_normal_np = surface_normal.cpu().numpy()
+    pcd = create_point_cloud(surface_xyz_np, surface_color_np, surface_normal_np)
     
-    # pcd = clean_point_cloud(pcd)
-    # print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
+    pcd = clean_point_cloud(pcd)
+    print(f"Point cloud cleaned. Remaining points: {len(pcd.points)}")
 
-    # o3d.io.write_point_cloud(output_pcd_path, pcd)
+    o3d.io.write_point_cloud(output_pcd_path, pcd)
     
     if args.meshing == 'nksr':
         input_xyz = torch.from_numpy(np.asarray(pcd.points)).float()
@@ -372,6 +402,8 @@ def main():
     elif args.meshing == 'pymeshlab-poisson':
         mesh = mesh_pymeshlab_poisson(output_pcd_path)
         mesh.export(os.path.join(work_dir, "fused_mesh.ply"))
+        mesh = clean_mesh(output_pcd_path, os.path.join(work_dir, "fused_mesh.ply"))
+        o3d.io.write_triangle_mesh(os.path.join(work_dir, f"fused_mesh.ply"), mesh)
     elif args.meshing == 'None':
         print("Skipping meshing as requested.")
     else:

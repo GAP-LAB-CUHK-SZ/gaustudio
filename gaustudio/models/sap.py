@@ -14,8 +14,8 @@ class ShapeAsPoints(BasePointCloud):
             "xyz": 3,
             "normals": 3
         },
-        "dpsr_res": 512,
-        "dpsr_sig": 3,
+        "dpsr_res": 256,
+        "dpsr_sig": 2,
         "dpsr_scale": True,
         "dpsr_shift": True,
         "dpsr_weighted": False,

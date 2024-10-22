@@ -106,8 +106,8 @@ class ColmapDatasetBase:
                 depth_tensor = None
             
             if self.w_mask:
-                mask_path_png = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.png')
-                mask_path_jpg = self.masks_dir / (os.path.basename(extr.name)[:-4] + '.jpg')
+                mask_path_png = self.masks_dir / (os.path.basename(extr.name).split('.')[0] + '.png')
+                mask_path_jpg = self.masks_dir / (os.path.basename(extr.name).split('.')[0] + '.jpg')
                 if mask_path_png.exists():
                     mask_path = mask_path_png
                 elif mask_path_jpg.exists():

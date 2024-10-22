@@ -319,7 +319,7 @@ class Camera:
         return None
 
     # Adapted from https://github.com/baegwangbin/DSINE/blob/main/utils/d2n/cross.py
-    def depth2normal(self, depth=None, k: int = 3, d_min: float = 1e-3, d_max: float = 10.0, coordinate='camera'):
+    def depth2normal(self, depth=None, k: int = 3, d_min: float = 1e-3, d_max: float = 100000.0, coordinate='camera'):
         if depth is None:
             depth = self.depth
         if depth is None:

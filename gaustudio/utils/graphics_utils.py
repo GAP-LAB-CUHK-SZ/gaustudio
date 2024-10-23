@@ -1,6 +1,10 @@
 import torch
 import math
 import numpy as np
+try:
+    from cumcubes import marching_cubes
+except:
+    from mcubes import marching_cubes
 from skimage import measure
 import torch
 import torch.fft
@@ -214,29 +218,45 @@ def point_rasterize(pts, vals, size, weighted=True):
     return raster  # [batch, nf, res, res, res]
 
 
+def calc_face_normals(
+        vertices:torch.Tensor, #V,3 first vertex may be unreferenced
+        faces:torch.Tensor, #F,3 long, first face may be all zero
+        normalize:bool=False,
+        )->torch.Tensor: #F,3
+    """
+         n
+         |
+         c0     corners ordered counterclockwise when
+        / \     looking onto surface (in neg normal direction)
+      c1---c2
+    """
+    full_vertices = vertices[faces] #F,C=3,3
+    v0,v1,v2 = full_vertices.unbind(dim=1) #F,3
+    face_normals = torch.cross(v1-v0,v2-v0, dim=1) #F,3
+    if normalize:
+        face_normals = torch.nn.functional.normalize(face_normals, eps=1e-6, dim=1)
+    return face_normals #F,3
+
 def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
     '''
-    Run marching cubes from PSR grid
+    Run marching cubes from PSR grid and calculate face normals
     '''
     batch_size = psr_grid.shape[0]
     s = psr_grid.shape[-1] # size of psr_grid
-    psr_grid_numpy = psr_grid.squeeze().detach().cpu().numpy()
+    psr_grid_numpy = psr_grid.squeeze()
     
     if batch_size>1:
         verts, faces, normals = [], [], []
         for i in range(batch_size):
-            verts_cur, faces_cur, normals_cur, values = measure.marching_cubes(psr_grid_numpy[i], level=0)
+            verts_cur, faces_cur = marching_cubes(psr_grid_numpy[i], zero_level)
+            
             verts.append(verts_cur)
             faces.append(faces_cur)
-            normals.append(normals_cur)
-        verts = np.stack(verts, axis = 0)
-        faces = np.stack(faces, axis = 0)
-        normals = np.stack(normals, axis = 0)
+        verts = np.stack(verts, axis=0)
+        faces = np.stack(faces, axis=0)
     else:
-        try:
-            verts, faces, normals, values = measure.marching_cubes(psr_grid_numpy, level=zero_level)
-        except:
-            verts, faces, normals, values = measure.marching_cubes(psr_grid_numpy)
+        verts, faces = marching_cubes(psr_grid_numpy, zero_level)
+    
     if real_scale:
         verts = verts / (s-1) # scale to range [0, 1]
     else:
@@ -244,9 +264,16 @@ def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
 
     if pytorchify:
         device = psr_grid.device
-        verts = torch.Tensor(np.ascontiguousarray(verts)).to(device)
-        faces = torch.Tensor(np.ascontiguousarray(faces)).to(device)
-        normals = torch.Tensor(np.ascontiguousarray(-normals)).to(device)
+        verts = verts.to(device)
+        faces = faces.to(device)
+        
+        # Calculate face normals
+        normals = calc_face_normals(verts, faces, normalize=True)
+    else:
+        # Calculate face normals using NumPy
+        v0, v1, v2 = verts[faces[:, 0]], verts[faces[:, 1]], verts[faces[:, 2]]
+        normals = np.cross(v1 - v0, v2 - v0)
+        normals = normals / np.linalg.norm(normals, axis=1, keepdims=True)
 
     return verts, faces, normals
 

@@ -243,7 +243,7 @@ def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
     '''
     batch_size = psr_grid.shape[0]
     s = psr_grid.shape[-1] # size of psr_grid
-    psr_grid_numpy = psr_grid.squeeze()
+    psr_grid_numpy = psr_grid.squeeze().detach().cpu().numpy()
     
     if batch_size>1:
         verts, faces, normals = [], [], []
@@ -264,8 +264,15 @@ def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
 
     if pytorchify:
         device = psr_grid.device
-        verts = verts.to(device)
-        faces = faces.to(device)
+        if not isinstance(verts, torch.Tensor):
+            verts = torch.from_numpy(verts).to(device)  # Convert to Tensor and move to device
+        else:
+            verts = verts.to(device)
+        if not isinstance(faces, torch.Tensor):
+            # Convert faces to int64 before converting to Tensor
+            faces = torch.from_numpy(faces.astype(np.int64)).to(device)  # Convert to Tensor and move to device
+        else:
+            faces = faces.to(device)
         
         # Calculate face normals
         normals = calc_face_normals(verts, faces, normalize=True)

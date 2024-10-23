@@ -13,14 +13,17 @@ from gaustudio.pipelines.initializers.pcd import PcdInitializer
 from gaustudio.datasets import Camera
 from gaustudio.datasets.utils import focal2fov
 
-
-from mini_dust3r.model import AsymmetricCroCo3DStereo
-from mini_dust3r.inference import inference
-from mini_dust3r.image_pairs import make_pairs
-from mini_dust3r.cloud_opt import global_aligner, GlobalAlignerMode
-from mini_dust3r.cloud_opt.base_opt import BasePCOptimizer
-from mini_dust3r.viz import pts3d_to_trimesh, cat_meshes
-from mini_dust3r.utils.image import load_images, ImgNorm
+try:
+    from mini_dust3r.model import AsymmetricCroCo3DStereo
+    from mini_dust3r.inference import inference
+    from mini_dust3r.image_pairs import make_pairs
+    from mini_dust3r.cloud_opt import global_aligner, GlobalAlignerMode
+    from mini_dust3r.cloud_opt.base_opt import BasePCOptimizer
+    from mini_dust3r.viz import pts3d_to_trimesh, cat_meshes
+    from mini_dust3r.utils.image import load_images, ImgNorm
+    DUST3R_AVAILABLE = True
+except:
+    DUST3R_AVAILABLE = False
 
 def _resize_pil_image(img, long_edge_size):
     S = max(img.size)
@@ -49,6 +52,7 @@ def combine_and_clean_point_clouds(pcds, max_points=500000):
 @initializers.register('dust3r')
 class Dust3rInitializer(PcdInitializer):
     def __init__(self, initializer_config):
+        assert DUST3R_AVAILABLE, "mini_dust3r is not installed"
         super().__init__(initializer_config)
         self.ws_dir = self.initializer_config.get('workspace_dir')
         self.prune_background = self.initializer_config.get('prune_bg', False)

@@ -31,6 +31,30 @@ def _resize_pil_image(img, long_edge_size):
     new_size = tuple(int(round(x * long_edge_size / S)) for x in img.size)
     return img.resize(new_size, interp)
 
+
+def remove_normal_outliers(pcd, nb_neighbors=20, angle_threshold=np.pi/4):
+    normals = np.asarray(pcd.normals)
+    
+    pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+    inlier_indices = []
+    
+    for i in range(len(pcd.points)):
+        [_, idx, _] = pcd_tree.search_knn_vector_3d(pcd.points[i], nb_neighbors)
+        neighbor_normals = normals[idx[1:]]  # Exclude the point itself
+        angles = np.arccos(np.abs(np.dot(neighbor_normals, normals[i])))
+        if np.mean(angles) < angle_threshold:
+            inlier_indices.append(i)
+    
+    return pcd.select_by_index(inlier_indices)
+
+def clean_point_cloud(pcd, nb_neighbors=50, std_ratio=2.0):
+    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    pcd_clean = pcd.select_by_index(ind)
+    
+    pcd_clean = remove_normal_outliers(pcd_clean)
+    
+    return pcd_clean
+
 def combine_and_clean_point_clouds(pcds, max_points=500000):
     pcd_combined = o3d.geometry.PointCloud()
     for p3d in pcds:
@@ -41,10 +65,41 @@ def combine_and_clean_point_clouds(pcds, max_points=500000):
     else:
         every_k = 1
     pcd_combined = pcd_combined.uniform_down_sample(every_k)
-    # cl, ind = pcd_combined.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-    # pcd_cleaned = pcd_combined.select_by_index(ind)
+
+    pcd_clean = clean_point_cloud(pcd_combined)
+    return pcd_clean
+
+def pts2normal(pts):
+    h, w, _ = pts.shape
     
-    return pcd_combined
+    # Compute differences in x and y directions
+    dx = pts[2:, 1:-1] - pts[:-2, 1:-1]
+    dy = pts[1:-1, 2:] - pts[1:-1, :-2]
+    
+    # Compute normal vectors using cross product
+    normals = np.cross(dx, dy, axis=-1)
+
+    # Normalize the normal vectors
+    norms = np.linalg.norm(normals, axis=-1, keepdims=True)
+    normal_map = normals / np.where(norms == 0, 1, norms)  # Avoid division by zero
+    
+    # Create padded normal map
+    padded_normal_map = np.zeros_like(pts)
+    padded_normal_map[1:-1, 1:-1, :] = normal_map
+
+    # Pad the borders
+    padded_normal_map[0, 1:-1, :] = normal_map[0, :, :]  # Top edge
+    padded_normal_map[-1, 1:-1, :] = normal_map[-1, :, :]  # Bottom edge
+    padded_normal_map[1:-1, 0, :] = normal_map[:, 0, :]  # Left edge
+    padded_normal_map[1:-1, -1, :] = normal_map[:, -1, :]  # Right edge
+    
+    # Pad the corners
+    padded_normal_map[0, 0, :] = normal_map[0, 0, :]  # Top-left corner
+    padded_normal_map[0, -1, :] = normal_map[0, -1, :]  # Top-right corner
+    padded_normal_map[-1, 0, :] = normal_map[-1, 0, :]  # Bottom-left corner
+    padded_normal_map[-1, -1, :] = normal_map[-1, -1, :]  # Bottom-right corner
+    
+    return padded_normal_map
 
 @initializers.register('dust3r')
 class Dust3rInitializer(PcdInitializer):
@@ -201,6 +256,9 @@ class Dust3rInitializer(PcdInitializer):
                 mask = np.logical_and(mask, fg_mask.cpu().numpy())
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(pts[mask].reshape(-1, 3))
+            pts_normal = pts2normal(pts)
+            pcd.normals = o3d.utility.Vector3dVector(pts_normal[mask].reshape(-1, 3))
+
             colors = (img[mask] / 255.0).cpu().numpy()
             pcd.colors = o3d.utility.Vector3dVector(colors.reshape(-1, 3))
             pcds.append(pcd)

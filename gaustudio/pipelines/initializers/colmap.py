@@ -2,7 +2,7 @@ import os
 import pycolmap
 import shutil
 from tqdm import tqdm
-from PIL import Image
+from PIL import Image, PngImagePlugin
 import numpy as np
 import torchvision
 import tempfile
@@ -10,6 +10,7 @@ import shutil
 from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 from gaustudio.utils.colmap_utils import COLMAPDatabase, create_images_bin, create_cameras_and_points_bin
+import torch
 
 @initializers.register('colmap')
 class ColmapInitializer(BaseInitializer):
@@ -48,6 +49,16 @@ class ColmapInitializer(BaseInitializer):
                 self.masks_dir = os.path.join(self.ws_dir, 'masks')
                 os.makedirs(self.masks_dir, exist_ok=True)
                 torchvision.utils.save_image(camera.mask.float(), os.path.join(self.masks_dir, f'{img_name}.png'))
+
+            if camera.depth is not None:
+                self.depths_dir = os.path.join(self.ws_dir, 'depths')
+                os.makedirs(self.depths_dir, exist_ok=True)
+                depth_max = float(camera.depth.max() + 1e-6)
+                depth_map_16bit = ((camera.depth / depth_max) * 65535).cpu().numpy().astype(np.uint16)
+                depth_img = Image.fromarray(depth_map_16bit)
+                meta = PngImagePlugin.PngInfo()
+                meta.add_text("depth_max", str(depth_max))
+                depth_img.save(os.path.join(self.depths_dir, f'{img_name}.png'), "PNG", pnginfo=meta)
 
             self.pose_dict[img_name] = camera.extrinsics.inverse()
             intrinsics = {

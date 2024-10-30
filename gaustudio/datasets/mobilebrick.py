@@ -63,7 +63,7 @@ class MobileBrickDatasetBase:
                 _image = cv2.addWeighted(masked_image, 1, background, 1, 0)
                 _mask_tensor = torch.from_numpy(mask)
             else:
-                _mask_tensor = None
+                _mask_tensor = torch.ones((height, width), dtype=torch.uint8)
             _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
             _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image=_image_tensor, image_name=image_name, 
                                       image_width=width, image_height=height, mask=_mask_tensor,

@@ -77,20 +77,12 @@ class NerfDataset(Dataset, NerfDatasetBase):
     
     def __getitem__(self, index):
         return self.all_cameras[index]
-    
-def load_camera_parameters(data: Dict):
-    camera_data = data['camera_data']
-    
-    # Get camera-to-world matrix
-    c2w = np.array(camera_data['cam2world'])
-    
-    # Get focal lengths
-    fx = camera_data['intrinsics']['fx']
-    fy = camera_data['intrinsics']['fy']
-    cx = camera_data['intrinsics']['cx']
-    cy = camera_data['intrinsics']['cy']
-    
-    return c2w, fx, fy
+
+def linear_to_srgb(img):
+    limit = 0.0031308
+    img = np.where(img>limit, 1.055*img**(1/2.4)-0.055, 12.92*img)
+    img[img>1] = 1 # "clamp" tonemapper
+    return img
 
 @datasets.register('rtmv')
 class RTMVDataset(NerfDataset):
@@ -100,19 +92,29 @@ class RTMVDataset(NerfDataset):
         os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
         all_cameras_unsorted = []
         
-        with open(self.source_path / f"nerf_{self.split}.json", 'r') as f:
-            meta = json.load(f)
+        split_json_path = self.source_path / f"transforms_{self.split}.json"
+        if split_json_path.exists():
+            with open(split_json_path, 'r') as f:
+                meta = json.load(f)
+        else:
+            frames = []
+            for _depth in self.source_path.glob('*.depth.exr'):
+                _frame = {}
+                _frame['file_path'] = str(_depth).split('.')[0]
+                frames.append(_frame)
+        meta = {'frames': frames}
         
         for _frame in tqdm(meta['frames']):
             image_name = f"{_frame['file_path']}.exr"
             image_path = self.image_path / image_name
             json_path = self.image_path / f"{_frame['file_path']}.json"
             mask_path = self.image_path / f"{_frame['file_path']}.seg.exr"
+            depth_path = self.image_path / f"{_frame['file_path']}.depth.exr"
             
             # Load image
             _image = cv2.imread(str(image_path), -1)
+            _image = linear_to_srgb(_image)
             _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float()
-            _image_tensor = _image_tensor.clip(0,1)**(1/2.2)
             
             # Load mask
             _mask = cv2.imread(str(mask_path), -1)
@@ -124,8 +126,9 @@ class RTMVDataset(NerfDataset):
             width, height = _camera_data['width'], _camera_data['height']
             FoVy = focal2fov(_camera_intrinsics['fy'], height)
             FoVx = focal2fov(_camera_intrinsics['fx'], width) 
+            cx, cy = _camera_intrinsics['cx'], _camera_intrinsics['cy']
 
-            c2w = np.array(_frame['transform_matrix'])
+            c2w = np.array(_camera_data['cam2world']).T            
             c2w[:,1:3] *= -1
             
             extrinsics = np.linalg.inv(c2w)
@@ -134,8 +137,16 @@ class RTMVDataset(NerfDataset):
             
             _camera = datasets.Camera(image_name=image_name, image_path=image_path, image=_image_tensor, 
                                       mask=_mask_tensor,
-                                      R=R, T=T, 
+                                      R=R, T=T, principal_point_ndc=np.array([cx / width, cy /height]),
                                       FoVy=FoVy, FoVx=FoVx, image_width=width, image_height=height)
+            
+            # Load ndc depth
+            _depth = cv2.imread(str(depth_path), -1)[..., 0]
+            _depth_tensor = torch.from_numpy(_depth)
+            mask_depth = torch.logical_and(_depth_tensor > -1000, _depth_tensor < 1000)
+            _depth_tensor[~mask_depth] = 0
+            _camera.depth = _camera.nerfdepth2depth(_depth_tensor)
+            
             all_cameras_unsorted.append(_camera)
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)

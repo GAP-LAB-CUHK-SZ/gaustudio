@@ -151,3 +151,65 @@ class RTMVDataset(NerfDataset):
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
+
+def quaternion_to_rotation_matrix(q: np.ndarray) -> np.ndarray:
+    """Convert quaternion to rotation matrix."""
+    w, x, y, z = q
+    R = np.array([
+        [1 - 2*y*y - 2*z*z, 2*x*y - 2*w*z, 2*x*z + 2*w*y],
+        [2*x*y + 2*w*z, 1 - 2*x*x - 2*z*z, 2*y*z - 2*w*x],
+        [2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x*x - 2*y*y]
+    ])
+    return R
+@datasets.register('navi')
+class NAVIDataset(NerfDataset):
+    def _initialize(self):
+        all_cameras_unsorted = []
+        self.image_dir = self.source_path / "images"
+        
+        self.annotations_path = self.source_path / 'annotations.json'
+        
+        # Load annotations
+        with open(self.annotations_path, 'r') as f:
+            self.annotations = json.load(f)
+        
+        for _id, anno in enumerate(tqdm(self.annotations)):            
+            image_name = anno['filename']
+            image_path = self.image_dir / image_name
+
+            depth_path = self.source_path / "depth" / image_name.replace('.jpg', '.png')
+            mask_path = self.source_path / "masks" / image_name.replace('.jpg', '.png')
+
+            # Load mask
+            _mask = cv2.imread(str(mask_path), -1) / 255
+            _depth = cv2.imread(str(depth_path), -1) / 1000
+
+            _mask_tensor = torch.from_numpy(_mask)
+            _depth_tensor = torch.from_numpy(_depth)
+            
+            focal_length = anno['camera']['focal_length']
+            width, height = anno['image_size']
+            FoVy = focal2fov(focal_length, height)
+            FoVx = focal2fov(focal_length, width)
+            cx, cy = width / 2, height / 2
+            
+            q = np.array(anno['camera']['q'])
+            T = np.array(anno['camera']['t'])
+            R = quaternion_to_rotation_matrix(q)
+            c2w = np.eye(4)
+            c2w[:3, :3] = R
+            c2w[:3, 3] = T
+            
+            extrinsics = np.linalg.inv(c2w)
+            R = np.transpose(extrinsics[:3, :3])
+            T = extrinsics[:3, 3]
+
+            _camera = datasets.Camera(image_name=image_name, image_path=image_path,
+                                      mask=_mask_tensor, depth=_depth_tensor, 
+                                      R=R, T=T, principal_point_ndc=np.array([cx / width, cy /height]),
+                                      FoVy=FoVy, FoVx=FoVx, image_width=width, image_height=height)
+            
+            all_cameras_unsorted.append(_camera)
+        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
+        self.nerf_normalization = getNerfppNorm(self.all_cameras)
+        self.cameras_extent = self.nerf_normalization["radius"]

@@ -4,6 +4,7 @@ import json
 import torchvision
 import trimesh
 import argparse
+import cv2
 
 from scipy.spatial import cKDTree
 from tqdm import tqdm
@@ -181,6 +182,61 @@ def normal_fusion(pcd, all_ids_list, all_normals_list, all_confidences_list, cam
     
     return unique_ids, smoothed_normals
 
+def masked_bilateral_filter(depth_map, mask, d=3, sigma_color=75, sigma_space=75):
+    """
+    Apply bilateral filtering only to valid pixels in the depth map and return an updated mask
+    that marks pixels as invalid if their window contains any invalid pixels.
+    """
+    # Convert to numpy arrays
+    depth_np = depth_map.detach().cpu().numpy()
+    mask_np = mask.detach().cpu().numpy()
+    
+    # Create a copy of the depth map for filtering
+    filtered_depth = depth_np.copy()
+    
+    # Create a new mask that marks pixels as invalid if their window contains invalid pixels
+    kernel_size = d
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    # Convert mask to proper data type for dilation
+    invalid_mask = (1 - mask_np).astype(np.uint8)
+    dilated_invalid = cv2.dilate(invalid_mask, kernel)
+    new_mask = (1 - dilated_invalid).astype(mask_np.dtype)  # Convert back to original mask dtype
+    
+    # Replace invalid pixels (where mask is 0) with NaN
+    depth_with_nans = depth_np.copy()
+    depth_with_nans[new_mask == 0] = np.nan
+    
+    # Apply bilateral filter only to valid regions
+    valid_region = ~np.isnan(depth_with_nans)
+    if np.any(valid_region):
+        # Extract min and max values from valid regions for better filtering
+        valid_min = np.nanmin(depth_with_nans)
+        valid_max = np.nanmax(depth_with_nans)
+        
+        # Normalize depth values for better filtering
+        normalized_depth = (depth_with_nans - valid_min) / (valid_max - valid_min)
+        normalized_depth[~valid_region] = 0  # Set invalid regions to 0
+        
+        # Apply bilateral filter
+        filtered_normalized = cv2.bilateralFilter(
+            normalized_depth.astype(np.float32),
+            d=d,
+            sigmaColor=sigma_color,
+            sigmaSpace=sigma_space
+        )
+        
+        # Denormalize
+        filtered_depth = filtered_normalized * (valid_max - valid_min) + valid_min
+        
+        # Restore invalid pixels
+        filtered_depth[~valid_region] = depth_np[~valid_region]
+    
+    # Convert back to tensors
+    filtered_depth_tensor = torch.from_numpy(filtered_depth).to(depth_map.device)
+    new_mask_tensor = torch.from_numpy(new_mask).to(depth_map.device)
+    
+    return filtered_depth_tensor, new_mask_tensor
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='path to config file', default='vanilla')
@@ -191,11 +247,9 @@ def main():
     parser.add_argument('--load_iteration', default=-1, type=int, help='iteration to be rendered')
     parser.add_argument('--resolution', default=1, type=int, help='downscale resolution')
     parser.add_argument('--sh', default=0, type=int, help='default SH degree')
-    parser.add_argument('--white_background', action='store_true', help='use white background')
-    parser.add_argument('--clean', action='store_true', help='perform a clean operation')
     parser.add_argument('--meshing', choices=['nksr', 'poisson', 'sap', \
                                               'poisson-9', 'pymeshlab-poisson', None], 
-                        default='nksr', help='Meshing method to use')
+                        default='sap', help='Meshing method to use')
     args, extras = parser.parse_known_args()
     
     # set CUDA_VISIBLE_DEVICES then import pytorch-lightning
@@ -266,15 +320,18 @@ def main():
         rendering = render_pkg["render"]
         rendered_final_opacity = render_pkg["rendered_final_opacity"][0] 
         rendered_depth = render_pkg["rendered_depth"][0]
-        cam_normals = camera.depth2normal(rendered_depth, coordinate='camera')
+        
+        fg_mask = rendered_final_opacity > 0.1
+        filtered_depth_tensor, fg_mask = masked_bilateral_filter(rendered_depth, fg_mask)
+        cam_normals = camera.depth2normal(filtered_depth_tensor, coordinate='camera')
+        cam_normals[~fg_mask] = -1
+        
         normals = camera.normal2worldnormal(cam_normals)
         median_point_depths = render_pkg["rendered_median_depth"][0]
         median_point_ids = render_pkg["rendered_median_id"][0]
-        
-        fg_mask = rendered_final_opacity > 0.1
         valid_mask = (median_point_depths < scene_radius * 0.8) & (rendered_final_opacity > 0.5)
         valid_mask = (normals.sum(dim=-1) > -3) & valid_mask
-
+        
         median_point_ids = median_point_ids[valid_mask]
         median_point_normals = -normals[valid_mask]
         median_point_confidances = rendered_final_opacity[valid_mask]

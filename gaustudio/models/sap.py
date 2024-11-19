@@ -106,6 +106,11 @@ class ShapeAsPoints(BasePointCloud):
             raise ValueError("Invalid input. Expected either 'faces' and 'face_normals' or 'normals' in the arguments.")
         
     def _from_mesh(self, vertices, faces, face_normals):
+        # Ensure vertices, faces, and face_normals are tensors
+        vertices = torch.as_tensor(vertices).to(self.device)
+        faces = torch.as_tensor(faces).to(self.device)
+        face_normals = torch.as_tensor(face_normals).to(self.device)
+        
         center = vertices.mean(dim=0)
         scale = (vertices - center).abs().max() * 1.2
 

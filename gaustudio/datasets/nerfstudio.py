@@ -49,8 +49,12 @@ class NerfStudioDatasetBase:
             _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
             
             # Load or create mask
-            mask_path = self.masks_dir / _frame['mask_path']
-            if self.w_mask and mask_path.exists():
+            if self.w_mask:
+                mask_path = self.masks_dir / _frame['mask_path']
+            else:
+                mask_path = None
+                
+            if mask_path is not None and mask_path.exists():
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                 _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
                 mask = cv2.resize(mask, (width, height))

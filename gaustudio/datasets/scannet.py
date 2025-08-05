@@ -58,7 +58,8 @@ class ScannetDatasetBase:
                                       image_width=width, image_height=height,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
+        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: int(
+            os.path.splitext(os.path.basename(x.image_name))[0]))
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
     

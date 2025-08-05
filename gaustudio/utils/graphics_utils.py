@@ -4,8 +4,7 @@ import numpy as np
 try:
     from cumcubes import marching_cubes
 except:
-    from mcubes import marching_cubes
-from skimage import measure
+    from skimage.measure import marching_cubes
 import torch
 import torch.fft
 from torch import nn

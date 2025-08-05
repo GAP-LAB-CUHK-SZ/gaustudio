@@ -125,14 +125,14 @@ class Camera:
     znear: float = 0.1
     zfar: float = 100
     
-    trans: np.array = np.array([0.0, 0.0, 0.0])
+    trans: np.array = None
     scale: float = 1.0
 
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
     projection_matrix: torch.tensor = None
     camera_center: torch.tensor = None    
-    principal_point_ndc: np.array = np.array([0.5, 0.5])
+    principal_point_ndc: np.array = None
     
     image_path: str = None
     image_name: str = None
@@ -146,6 +146,11 @@ class Camera:
         self._setup()
 
     def _setup(self):
+        if self.trans is None:
+            self.trans = np.array([0.0, 0.0, 0.0])
+        if self.principal_point_ndc is None:
+            self.principal_point_ndc = np.array([0.5, 0.5])
+            
         self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, 
                                                      fovX=self.FoVx, fovY=self.FoVy,

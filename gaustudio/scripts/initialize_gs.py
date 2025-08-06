@@ -16,7 +16,7 @@ from gaustudio.utils.misc import load_config
 @click.option('--config', '-c', help='Path to configuration file for advanced initializer settings')
 def main(dataset: str, source_path: Optional[str], output_dir: Optional[str], 
         overwrite: bool, w_mask: str, resolution: int, model: str, initializer: str, 
-        prune_bg: bool, config: Optional[str]) -> None:
+        config: Optional[str]) -> None:
     from gaustudio import datasets
     from gaustudio import models
     from gaustudio.pipelines import initializers

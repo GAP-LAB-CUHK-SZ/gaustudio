@@ -265,3 +265,87 @@ class KiriDataset(NerfDataset):
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]
+
+@datasets.register('trellis')
+class TrellisDataset(NerfDataset):
+    def _initialize(self):
+        import pyexr
+        all_cameras_unsorted = []
+        
+        with open(self.source_path / "transforms.json", 'r') as f:
+            meta = json.load(f)
+        
+        # Get image dimensions from first image if not specified
+        if 'w' in meta and 'h' in meta:
+            width, height = int(meta['w']), int(meta['h'])
+        else:
+            # Try to read dimensions from first image
+            first_frame = meta['frames'][0]
+            first_image_path = self.source_path / first_frame['file_path']
+            if first_image_path.exists():
+                img = cv2.imread(str(first_image_path))
+                height, width = img.shape[:2]
+            else:
+                width, height = 1024, 1024
+        
+        for _frame in tqdm(meta['frames']):
+            image_name = _frame['file_path'].split('/')[-1]
+            image_path = self.source_path /  image_name
+            
+            # Load image
+            _image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+            if _image is None:
+                raise FileNotFoundError(f"Could not load image: {image_path}")
+            
+            # Extract alpha channel as mask if it exists (PNG with alpha)
+            if _image.shape[2] == 4:  # RGBA image
+                _mask = _image[..., 3] / 255.0  # Alpha channel as mask
+                _image = _image[..., :3]  # RGB channels only
+                _mask_tensor = torch.from_numpy(_mask)
+            else:
+                # Create default mask (all ones) if no alpha channel
+                _mask_tensor = torch.ones(_image.shape[:2])
+            
+            _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255.0
+            
+            # Get frame ID for depth loading
+            
+            # Load depth if available
+            depth_tensor = None
+            _frame_id = image_name.split('.')[0]
+            depth_path = os.path.join(str(self.source_path), "depth", _frame_id + "_depth.exr")
+            if os.path.exists(depth_path):
+                _depth = pyexr.read(depth_path)[..., 0]
+                depth_tensor = torch.from_numpy(_depth)
+                depth_tensor[_mask_tensor == 0] = 0
+            
+            # Calculate focal length and FoV
+            camera_angle_x = _frame['camera_angle_x']
+            focal = 0.5 * width / math.tan(0.5 * camera_angle_x)
+            FoVy = focal2fov(focal, height)
+            FoVx = focal2fov(focal, width)
+            
+            # Get camera transform matrix
+            c2w = np.array(_frame['transform_matrix'])
+            c2w[:, 1:3] *= -1
+            
+            extrinsics = np.linalg.inv(c2w)
+            R = np.transpose(extrinsics[:3, :3])
+            T = extrinsics[:3, 3]
+            
+            _camera = datasets.Camera(
+                image_name=image_name,
+                image_path=image_path,
+                image=_image_tensor,
+                mask=_mask_tensor,
+                depth=depth_tensor,
+                R=R, T=T,
+                FoVy=FoVy, FoVx=FoVx,
+                image_width=width, image_height=height
+            )
+            
+            all_cameras_unsorted.append(_camera)
+        
+        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
+        self.nerf_normalization = getNerfppNorm(self.all_cameras)
+        self.cameras_extent = self.nerf_normalization["radius"]

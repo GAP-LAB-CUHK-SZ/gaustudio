@@ -13,13 +13,25 @@ import open3d as o3d
 import torch
 
 def inverse_sigmoid(x):
+    """Compute the inverse sigmoid function: log(x / (1 - x))"""
     return np.log(x / (1 - x))
 
-# adopted from https://github.com/turandai/gaussian_surfels/blob/main/utils/general_utils.py
 def normal2rotation(n):
-    # construct a random rotation matrix from normal
-    # it would better be positive definite and orthogonal
+    """
+    Construct a rotation matrix from surface normals.
+    
+    Args:
+        n: Surface normals tensor of shape (N, 3)
+        
+    Returns:
+        Quaternion representations of rotation matrices
+        
+    Note: Adopted from https://github.com/turandai/gaussian_surfels/blob/main/utils/general_utils.py
+    """
+    # Normalize input normals
     n = torch.nn.functional.normalize(n)
+    
+    # Create orthogonal basis vectors
     w0 = torch.tensor([[1, 0, 0]]).expand(n.shape)
     R0 = w0 - torch.sum(w0 * n, -1, True) * n
     R0 *= torch.sign(R0[:, :1])
@@ -33,15 +45,26 @@ def normal2rotation(n):
     return q
 
 def rotmat2quaternion(R, normalize=False):
+    """
+    Convert rotation matrices to quaternions.
+    
+    Args:
+        R: Rotation matrices of shape (N, 3, 3)
+        normalize: Whether to normalize the output quaternions
+        
+    Returns:
+        Quaternions of shape (N, 4)
+    """
     tr = R[:, 0, 0] + R[:, 1, 1] + R[:, 2, 2] + 1e-6
     r = torch.sqrt(1 + tr) / 2
-    # print(torch.sum(torch.isnan(r)))
+    
     q = torch.stack([
         r,
         (R[:, 2, 1] - R[:, 1, 2]) / (4 * r),
         (R[:, 0, 2] - R[:, 2, 0]) / (4 * r),
         (R[:, 1, 0] - R[:, 0, 1]) / (4 * r)
     ], -1)
+    
     if normalize:
         q = torch.nn.functional.normalize(q, dim=-1)
     return q
@@ -49,18 +72,39 @@ def rotmat2quaternion(R, normalize=False):
 
 @initializers.register('mesh')
 class MeshInitializer(BaseInitializer):
+    """
+    Initialize Gaussian splats from triangle mesh surfaces.
+    
+    This initializer places Gaussian splats on mesh triangles using barycentric coordinates.
+    The number of Gaussians per triangle and their positioning can be configured.
+    
+    Code adapted from: https://github.com/Anttwo/SuGaR/blob/main/sugar_scene/sugar_model.py
+    """
+    
+    # Number of Gaussians to place per mesh triangle
     n_gaussians_per_surface_triangle = 1
     
-    # This code is adopted from https://github.com/Anttwo/SuGaR/blob/main/sugar_scene/sugar_model.py
     def __init__(self, initializer_config):
+        """
+        Initialize the mesh-based Gaussian initializer.
+        
+        Args:
+            initializer_config: Configuration object for the initializer
+        """
         super().__init__(initializer_config)
+        self._setup_barycentric_coordinates()
+    
+    def _setup_barycentric_coordinates(self):
+        """Setup barycentric coordinates and circle radius based on number of Gaussians per triangle."""
         if self.n_gaussians_per_surface_triangle == 1:
+            # Single Gaussian at triangle centroid
             self.surface_triangle_circle_radius = 1. / 2. / np.sqrt(3.)
             self.surface_triangle_bary_coords = torch.tensor(
                 [[1/3, 1/3, 1/3]],
                 dtype=torch.float32,
             )[..., None]
         elif self.n_gaussians_per_surface_triangle == 3:
+            # Three Gaussians positioned towards each vertex
             self.surface_triangle_circle_radius = 1. / 2. / (np.sqrt(3.) + 1.)
             self.surface_triangle_bary_coords = torch.tensor(
                 [[1/2, 1/4, 1/4],
@@ -69,32 +113,56 @@ class MeshInitializer(BaseInitializer):
                 dtype=torch.float32,
             )[..., None]
         elif self.n_gaussians_per_surface_triangle == 4:
+            # Four Gaussians: one at center, three towards vertices
             self.surface_triangle_circle_radius = 1 / (4. * np.sqrt(3.))
             self.surface_triangle_bary_coords = torch.tensor(
-                [[1/3, 1/3, 1/3],
-                [2/3, 1/6, 1/6],
-                [1/6, 2/3, 1/6],
-                [1/6, 1/6, 2/3]],
+                [[1/3, 1/3, 1/3],  # Center
+                [2/3, 1/6, 1/6],   # Towards vertex 0
+                [1/6, 2/3, 1/6],   # Towards vertex 1
+                [1/6, 1/6, 2/3]],  # Towards vertex 2
                 dtype=torch.float32,
-            )[..., None]  # n_gaussians_per_face, 3, 1  
+            )[..., None]  # Shape: (n_gaussians_per_face, 3, 1)
         elif self.n_gaussians_per_surface_triangle == 6:
+            # Six Gaussians: three towards vertices, three towards edge midpoints
             self.surface_triangle_circle_radius = 1 / (4. + 2.*np.sqrt(3.))
             self.surface_triangle_bary_coords = torch.tensor(
-                [[2/3, 1/6, 1/6],
-                [1/6, 2/3, 1/6],
-                [1/6, 1/6, 2/3],
-                [1/6, 5/12, 5/12],
-                [5/12, 1/6, 5/12],
-                [5/12, 5/12, 1/6]],
+                [[2/3, 1/6, 1/6],   # Towards vertex 0
+                [1/6, 2/3, 1/6],   # Towards vertex 1
+                [1/6, 1/6, 2/3],   # Towards vertex 2
+                [1/6, 5/12, 5/12], # Towards edge 0-1
+                [5/12, 1/6, 5/12], # Towards edge 0-2
+                [5/12, 5/12, 1/6]], # Towards edge 1-2
                 dtype=torch.float32,
             )[..., None]
-            
+    
     def __call__(self, model, mesh, dataset=None, overwrite=False):
+        """
+        Initialize the model with Gaussians placed on the mesh surface.
+        
+        Args:
+            model: Point cloud model to initialize
+            mesh: Open3D triangle mesh
+            dataset: Dataset object (optional)
+            overwrite: Whether to overwrite existing data
+            
+        Returns:
+            Initialized model
+        """
         self.mesh = mesh
         self.mesh.compute_vertex_normals()
-        model = self.build_model(model)
+        return self.build_model(model)
 
     def build_model(self, model):
+        """
+        Build the Gaussian model from mesh data.
+        
+        Args:
+            model: Point cloud model to populate
+            
+        Returns:
+            Populated model with Gaussian attributes
+        """
+        # Extract mesh data
         faces = torch.tensor(np.array(self.mesh.triangles))
         vertex_points = torch.tensor(np.array(self.mesh.vertices)).float()
         vertex_colors = torch.tensor(np.array(self.mesh.vertex_colors)).float()
@@ -102,34 +170,272 @@ class MeshInitializer(BaseInitializer):
         
         has_color = vertex_colors.shape[0] > 0
         
-        faces_verts = vertex_points[faces]  # n_faces, 3, n_coords
-        faces_normals = vertex_normals[faces]  # n_faces, 3, n_coords
+        # Get per-face vertex data
+        faces_verts = vertex_points[faces]    # Shape: (n_faces, 3, 3)
+        faces_normals = vertex_normals[faces] # Shape: (n_faces, 3, 3)
         
-        points = faces_verts[:, None] * self.surface_triangle_bary_coords[None]  # n_faces, n_gaussians_per_face, 3, n_coords
-        points = points.sum(dim=-2)  # n_faces, n_gaussians_per_face, n_coords
-        points = points.reshape(-1, 3)
+        # Compute Gaussian positions using barycentric coordinates
+        points = self._compute_gaussian_positions(faces_verts)
         
-        # Calculate points_normal
-        points_normal = faces_normals[:, None] * self.surface_triangle_bary_coords[None]  # n_faces, n_gaussians_per_face, 3, n_coords
-        points_normal = points_normal.sum(dim=-2)  # n_faces, n_gaussians_per_face, n_coords
-        points_normal = points_normal.reshape(-1, 3)
-        points_normal = torch.nn.functional.normalize(points_normal, dim=-1)
+        # Compute surface normals at Gaussian positions
+        points_normal = self._compute_surface_normals(faces_normals)
+        
+        # Convert normals to rotations
         rotations = normal2rotation(points_normal)
         
-        if has_color:
-            faces_colors = vertex_colors[faces]  # n_faces, 3, n_coords
-            colors = faces_colors[:, None] * self.surface_triangle_bary_coords[None]  # n_faces, n_gaussians_per_face, 3, n_colors
-            colors = colors.sum(dim=-2)  # n_faces, n_gaussians_per_face, n_colors
-            colors = colors.reshape(-1, 3)  # n_faces * n_gaussians_per_face, n_colors
-        else:
-            colors = None
-            
-        scales = (faces_verts - faces_verts[:, [1, 2, 0]]).norm(dim=-1).min(dim=-1)[0] * self.surface_triangle_circle_radius
-        scales = scales.clamp_min(0.).reshape(len(faces_verts), -1, 1).expand(-1, self.n_gaussians_per_surface_triangle, 2).clone().reshape(-1, 2)
-        scales = torch.cat([scales, torch.zeros((scales.shape[0], 1))], dim=-1)
-        log_scales = torch.log(scales * 2 + 1e-7)
+        # Compute colors if available
+        colors = self._compute_colors(faces, vertex_colors, has_color)
         
+        # Compute scales based on triangle edge lengths
+        scales = self._compute_scales(faces_verts)
+        
+        # Set opacity (all Gaussians start fully opaque)
         opacity = inverse_sigmoid(np.ones((points.shape[0], 1)))
-        model.create_from_attribute(xyz=points, rgb=colors, scale=log_scales, opacity=opacity, rot=rotations)
+        
+        # Create model from computed attributes
+        model.create_from_attribute(
+            xyz=points, 
+            rgb=colors, 
+            scale=scales, 
+            opacity=opacity, 
+            rot=rotations
+        )
 
         return model
+        
+    def _compute_gaussian_positions(self, faces_verts):
+        """Compute 3D positions of Gaussians using barycentric coordinates."""
+        # Shape: (n_faces, n_gaussians_per_face, 3, 3) -> (n_faces, n_gaussians_per_face, 3)
+        points = faces_verts[:, None] * self.surface_triangle_bary_coords[None]
+        points = points.sum(dim=-2)  # Sum over the 3 vertices
+        return points.reshape(-1, 3)  # Flatten to (total_gaussians, 3)
+        
+    def _compute_surface_normals(self, faces_normals):
+        """Compute surface normals at Gaussian positions."""
+        # Interpolate normals using barycentric coordinates
+        points_normal = faces_normals[:, None] * self.surface_triangle_bary_coords[None]
+        points_normal = points_normal.sum(dim=-2)
+        points_normal = points_normal.reshape(-1, 3)
+        return torch.nn.functional.normalize(points_normal, dim=-1)
+        
+    def _compute_colors(self, faces, vertex_colors, has_color):
+        """Compute colors at Gaussian positions."""
+        if has_color:
+            faces_colors = vertex_colors[faces]  # Shape: (n_faces, 3, 3)
+            colors = faces_colors[:, None] * self.surface_triangle_bary_coords[None]
+            colors = colors.sum(dim=-2)  # Interpolate using barycentric coordinates
+            return colors.reshape(-1, 3)  # Shape: (total_gaussians, 3)
+        else:
+            return None
+            
+    def _compute_scales(self, faces_verts):
+        """Compute scale values based on triangle edge lengths."""
+        # Compute minimum edge length for each triangle
+        edge_lengths = (faces_verts - faces_verts[:, [1, 2, 0]]).norm(dim=-1)
+        min_edge_lengths = edge_lengths.min(dim=-1)[0]
+        
+        # Scale based on triangle size and circle radius
+        scales = min_edge_lengths * self.surface_triangle_circle_radius
+        scales = scales.clamp_min(0.)  # Ensure positive scales
+        
+        # Expand to all Gaussians and create 3D scales (x, y, z)
+        scales = scales.reshape(len(faces_verts), -1, 1).expand(-1, self.n_gaussians_per_surface_triangle, 2)
+        scales = scales.clone().reshape(-1, 2)
+        
+        # Add zero z-scale (flat Gaussians on surface)
+        scales = torch.cat([scales, torch.zeros((scales.shape[0], 1))], dim=-1)
+        
+        # Convert to log space for Gaussian representation
+        return torch.log(scales * 2 + 1e-7)
+
+@initializers.register('voxel')
+class VoxelInitializer(BaseInitializer):
+    """
+    Initialize Gaussian splats from mesh voxelization.
+    
+    This initializer creates a voxel grid from the input mesh and places
+    Gaussian splats at voxel centers that intersect with the mesh.
+    """
+    
+    def __init__(self, initializer_config):
+        """
+        Initialize the voxel-based Gaussian initializer.
+        
+        Args:
+            initializer_config: Configuration object containing voxel_size parameter
+        """
+        super().__init__(initializer_config)
+        self.voxel_size = getattr(initializer_config, 'voxel_size', 1/256)
+        
+    def __call__(self, model, mesh, dataset=None, overwrite=False):
+        """
+        Initialize the model with Gaussians placed at voxel centers.
+        
+        Args:
+            model: Point cloud model to initialize
+            mesh: Open3D triangle mesh
+            dataset: Dataset object (optional)
+            overwrite: Whether to overwrite existing data
+            
+        Returns:
+            Initialized model
+        """
+        self.mesh = mesh
+        self.mesh.compute_vertex_normals()
+        return self.build_model(model)
+        
+    def build_model(self, model):
+        """
+        Build the Gaussian model from voxelized mesh data.
+        
+        Args:
+            model: Point cloud model to populate
+            
+        Returns:
+            Populated model with Gaussian attributes
+        """
+        # Normalize mesh to unit cube for consistent voxelization
+        normalized_mesh, scale, center = self._normalize_mesh()
+        
+        # Create voxel grid from normalized mesh
+        voxel_centers = self._create_voxel_grid(normalized_mesh)
+        
+        if len(voxel_centers) == 0:
+            raise ValueError("No voxels generated from mesh")
+        
+        # Transform voxel centers back to original coordinate system
+        points = self._transform_to_original_coordinates(voxel_centers, scale, center)
+        
+        # Generate Gaussian attributes
+        colors = self._interpolate_colors_from_mesh(points)
+        scales = self._compute_voxel_scales(scale, len(points))
+        opacity = self._compute_opacity(len(points))
+        rotations = self._generate_random_rotations(len(points))
+        
+        # Create model from computed attributes
+        model.create_from_attribute(
+            xyz=points, 
+            rgb=colors, 
+            scale=scales, 
+            opacity=opacity, 
+            rot=rotations
+        )
+        
+        return model
+        
+    def _normalize_mesh(self):
+        """
+        Normalize mesh to fit within a unit cube centered at origin.
+        
+        Returns:
+            Tuple of (normalized_mesh, scale_factor, original_center)
+        """
+        vertices = np.asarray(self.mesh.vertices)
+        
+        # Compute bounding box
+        aabb = np.stack([vertices.min(0), vertices.max(0)])
+        center = (aabb[0] + aabb[1]) / 2
+        scale = (aabb[1] - aabb[0]).max()
+        
+        # Normalize vertices to [-0.5, 0.5] range
+        normalized_vertices = (vertices - center) / scale
+        normalized_vertices = np.clip(normalized_vertices, -0.5 + 1e-6, 0.5 - 1e-6)
+        
+        # Create normalized mesh
+        normalized_mesh = o3d.geometry.TriangleMesh()
+        normalized_mesh.vertices = o3d.utility.Vector3dVector(normalized_vertices)
+        normalized_mesh.triangles = self.mesh.triangles
+        normalized_mesh.vertex_colors = self.mesh.vertex_colors
+        normalized_mesh.compute_vertex_normals()
+        
+        return normalized_mesh, scale, center
+        
+    def _create_voxel_grid(self, normalized_mesh):
+        """
+        Create voxel grid from normalized mesh.
+        
+        Args:
+            normalized_mesh: Mesh normalized to unit cube
+            
+        Returns:
+            Array of voxel center coordinates in normalized space
+        """
+        # Create voxel grid within normalized bounds
+        voxel_grid = o3d.geometry.VoxelGrid.create_from_triangle_mesh_within_bounds(
+            normalized_mesh, 
+            voxel_size=self.voxel_size, 
+            min_bound=(-0.5, -0.5, -0.5), 
+            max_bound=(0.5, 0.5, 0.5)
+        )
+        
+        # Extract voxel centers
+        voxel_centers = []
+        for voxel in voxel_grid.get_voxels():
+            grid_index = voxel.grid_index
+            voxel_center = voxel_grid.get_voxel_center_coordinate(grid_index)
+            voxel_centers.append(voxel_center)
+        
+        return np.array(voxel_centers) if voxel_centers else np.empty((0, 3))
+        
+    def _transform_to_original_coordinates(self, voxel_centers, scale, center):
+        """Transform voxel centers back to original mesh coordinate system."""
+        points = voxel_centers * scale + center
+        return torch.tensor(points).float()
+        
+    def _interpolate_colors_from_mesh(self, points):
+        """
+        Interpolate colors from mesh vertices if vertex colors are available.
+        
+        Args:
+            points: Tensor of 3D points
+            
+        Returns:
+            Color tensor or None if no vertex colors available
+        """
+        has_color = len(np.asarray(self.mesh.vertex_colors)) > 0
+        if not has_color:
+            return None
+            
+        colors = []
+        for point in points:
+            try:
+                # Find closest point on mesh surface
+                closest_point_idx = self.mesh.get_closest_point_on_triangle_mesh(point.numpy())
+                if len(closest_point_idx) > 0:
+                    vertex_color = np.asarray(self.mesh.vertex_colors)[closest_point_idx[1]]
+                    colors.append(vertex_color)
+                else:
+                    colors.append([0.5, 0.5, 0.5])  # Default gray
+            except:
+                colors.append([0.5, 0.5, 0.5])  # Fallback to gray
+                
+        return torch.tensor(np.array(colors)).float()
+        
+    def _compute_voxel_scales(self, original_scale, num_points):
+        """
+        Compute scale values for Gaussians based on voxel size.
+        
+        Args:
+            original_scale: Scale factor from mesh normalization
+            num_points: Number of Gaussian points
+            
+        Returns:
+            Log-space scale tensor of shape (num_points, 3)
+        """
+        # Set scales to be slightly smaller than voxel size
+        voxel_scale = self.voxel_size * original_scale * 0.8  # 80% of voxel size
+        scales = torch.full((num_points, 3), voxel_scale)
+        return torch.log(scales + 1e-7)
+        
+    def _compute_opacity(self, num_points):
+        """Compute opacity values for all Gaussians."""
+        return inverse_sigmoid(np.ones((num_points, 1)))
+        
+    def _generate_random_rotations(self, num_points):
+        """
+        Generate random rotation quaternions for Gaussians.
+        
+        Note: Could be improved by using surface normals if needed.
+        """
+        rotations = torch.randn(num_points, 4)
+        return torch.nn.functional.normalize(rotations, dim=-1)

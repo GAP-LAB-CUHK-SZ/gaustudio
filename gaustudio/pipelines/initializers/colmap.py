@@ -38,34 +38,68 @@ class ColmapInitializer(BaseInitializer):
         return model
 
     def cache_dataset(self, dataset):
-        for img_id, camera in enumerate(tqdm(dataset, desc="Caching images")):
+        # Collect all data first for batch processing
+        images_data = []
+        masks_data = []
+        depths_data = []
+        pose_data = {}
+        
+        print("Collecting dataset for batch processing...")
+        for img_id, camera in enumerate(tqdm(dataset, desc="Collecting data")):
             img_name = str(img_id).zfill(8)
             
-            img_np = camera.image.numpy() * 255  # Convert to HWC format
-            img_pil = Image.fromarray(np.uint8(img_np))
-            img_pil.save(os.path.join(self.images_dir, f'{img_name}.jpg'), quality=95)
+            # Store image data
+            img_np = camera.image.numpy() * 255
+            images_data.append((img_name, img_np))
             
+            # Store mask data if available
             if camera.mask is not None:
-                self.masks_dir = os.path.join(self.ws_dir, 'masks')
-                os.makedirs(self.masks_dir, exist_ok=True)
-                torchvision.utils.save_image(camera.mask.float(), os.path.join(self.masks_dir, f'{img_name}.png'))
-
+                masks_data.append((img_name, camera.mask))
+            
+            # Store depth data if available
             if camera.depth is not None:
-                self.depths_dir = os.path.join(self.ws_dir, 'depths')
-                os.makedirs(self.depths_dir, exist_ok=True)
                 depth_max = float(camera.depth.max() + 1e-6)
-                depth_map_16bit = ((camera.depth / depth_max) * 65535).cpu().numpy().astype(np.uint16)
-                depth_img = Image.fromarray(depth_map_16bit)
-                meta = PngImagePlugin.PngInfo()
-                meta.add_text("depth_max", str(depth_max))
-                depth_img.save(os.path.join(self.depths_dir, f'{img_name}.png'), "PNG", pnginfo=meta)
-
-            self.pose_dict[img_name] = camera.extrinsics.inverse()
+                depths_data.append((img_name, camera.depth, depth_max))
+            
+            # Store pose data
+            pose_data[img_name] = camera.extrinsics.inverse()
+            
+            # Get intrinsics (assuming same for all images)
             intrinsics = {
                 'width': camera.image_width, 'height': camera.image_height, 
                 'fx': camera.intrinsics[0, 0], 'fy': camera.intrinsics[1, 1],
                 'cx': camera.intrinsics[0, 2], 'cy': camera.intrinsics[1, 2]
             }
+        
+        # Batch save images
+        print("Batch saving images...")
+        for img_name, img_np in tqdm(images_data, desc="Saving images"):
+            img_pil = Image.fromarray(np.uint8(img_np))
+            img_pil.save(os.path.join(self.images_dir, f'{img_name}.jpg'), quality=95)
+        
+        # Batch save masks if any
+        if masks_data:
+            self.masks_dir = os.path.join(self.ws_dir, 'masks')
+            os.makedirs(self.masks_dir, exist_ok=True)
+            print("Batch saving masks...")
+            masks_tensor = torch.stack([mask.float() for _, mask in masks_data])
+            for i, (img_name, _) in enumerate(tqdm(masks_data, desc="Saving masks")):
+                torchvision.utils.save_image(masks_tensor[i], os.path.join(self.masks_dir, f'{img_name}.png'))
+        
+        # Batch save depths if any
+        if depths_data:
+            self.depths_dir = os.path.join(self.ws_dir, 'depths')
+            os.makedirs(self.depths_dir, exist_ok=True)
+            print("Batch saving depths...")
+            for img_name, depth, depth_max in tqdm(depths_data, desc="Saving depths"):
+                depth_map_16bit = ((depth / depth_max) * 65535).cpu().numpy().astype(np.uint16)
+                depth_img = Image.fromarray(depth_map_16bit)
+                meta = PngImagePlugin.PngInfo()
+                meta.add_text("depth_max", str(depth_max))
+                depth_img.save(os.path.join(self.depths_dir, f'{img_name}.png'), "PNG", pnginfo=meta)
+        
+        # Store pose data
+        self.pose_dict = pose_data
 
         print("Creating camera and points model data...")
         create_cameras_and_points_bin(self.ws_dir, intrinsics)

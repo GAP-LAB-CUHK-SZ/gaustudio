@@ -155,7 +155,7 @@ def _create_dataset(dataset, source_path, w_mask, resolution):
 @click.option('--overwrite', help='Overwrite existing files', is_flag=True)
 @click.option('--w_mask', default=None, help='mask dir name')
 @click.option('--resolution', '-r', default=1, type=int, help='Resolution')
-@click.option('--initializer', '-i', type=click.Choice(['depth', 'VisualHull', 'mesh', 'voxel']), 
+@click.option('--initializer', '-i', type=click.Choice(['depth', 'VisualHull', 'mesh', 'voxel', 'tsdf']), 
               help='Geometry initializer to use for point cloud generation')
 @click.option('--mesh_path', '-m', help='Path to mesh file (required for mesh and voxel geometry initializers)')
 @click.option('--config', '-c', help='Path to configuration file for advanced initializer settings')
@@ -179,7 +179,7 @@ def main(dataset: str, source_path: Optional[str], output_dir: Optional[str],
     dataset_obj = _create_dataset(dataset, source_path, w_mask, resolution)
 
     # Step 2: Run pose initializer (try hloc first, fallback to colmap)
-    # _run_pose_initializer(output_dir, config, overwrite, dataset_obj)
+    _run_pose_initializer(output_dir, config, overwrite, dataset_obj)
 
     # Step 3: Run geometry initializer if specified
     if initializer:

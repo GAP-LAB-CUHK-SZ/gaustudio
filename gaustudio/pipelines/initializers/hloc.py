@@ -23,10 +23,11 @@ class HlocInitializer(ColmapInitializer):
 
         create_images_from_pose_dict(self.ws_dir, self.pose_dict)
         sfm_pairs = Path(f'{self.ws_dir}/pairs-sfm.txt')
-        pairs_from_poses.main(Path(f'{self.ws_dir}/model'), sfm_pairs, num_matched=10)
+        
         
         feature_conf = extract_features.confs["superpoint_aachen"]
-        matcher_conf = match_features.confs["NN-superpoint"]
+        pairs_from_poses.main(Path(f'{self.ws_dir}/model'), sfm_pairs, num_matched=10)
+        matcher_conf = match_features.confs["superpoint+lightglue"]
         features = extract_features.main(
             feature_conf, Path(self.images_dir) ,
             feature_path=Path(self.ws_dir) / "model" / 'features.h5' , as_half=False)
@@ -37,26 +38,8 @@ class HlocInitializer(ColmapInitializer):
         sparse_reconstruction_folder = Path(self.ws_dir) / 'sparse' / '0'
         os.makedirs(sparse_reconstruction_folder, exist_ok=True)
         triangulation.main(sparse_reconstruction_folder, Path(f'{self.ws_dir}/model'), Path(self.images_dir),
-                           sfm_pairs, features, sfm_matches, skip_geometric_verification=True)
+                            sfm_pairs, features, sfm_matches, skip_geometric_verification=True)
         shutil.rmtree(os.path.join(self.ws_dir, 'model'))
-
-@initializers.register('loftr')
-class LoftrInitializer(ColmapInitializer):
-    def process_dataset(self):
-        if not hloc_installed:
-            raise ImportError("Please install hloc to use LoftrInitializer.")
-
-        create_images_from_pose_dict(self.ws_dir, self.pose_dict)
-        sfm_pairs = Path(f'{self.ws_dir}/pairs-sfm.txt')
-        pairs_from_poses.main(Path(f'{self.ws_dir}/model'), sfm_pairs, num_matched=10)
-        matcher_conf = match_dense.confs['loftr']
-        features, sfm_matches = match_dense.main(matcher_conf, sfm_pairs, Path(self.images_dir),
-                                         self.ws_dir, max_kps=8192)
-
-        sparse_reconstruction_folder = Path(self.ws_dir) / 'sparse' / '0'
-        os.makedirs(sparse_reconstruction_folder, exist_ok=True)
-        triangulation.main(sparse_reconstruction_folder, Path(f'{self.ws_dir}/model'), Path(self.images_dir), sfm_pairs, features, sfm_matches)
-
 
 @initializers.register('loftr')
 class LoftrInitializer(ColmapInitializer):

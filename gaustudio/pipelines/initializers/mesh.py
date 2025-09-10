@@ -11,6 +11,7 @@ from gaustudio.pipelines import initializers
 from gaustudio.pipelines.initializers.base import BaseInitializer
 import open3d as o3d
 import torch
+import math
 
 def inverse_sigmoid(x):
     """Compute the inverse sigmoid function: log(x / (1 - x))"""
@@ -439,3 +440,215 @@ class VoxelInitializer(BaseInitializer):
         """
         rotations = torch.randn(num_points, 4)
         return torch.nn.functional.normalize(rotations, dim=-1)
+
+
+@initializers.register('tsdf')
+class TsdfInitializer(MeshInitializer):
+    def __init__(self, initializer_config):
+        super().__init__(initializer_config)
+        self.voxel_size = getattr(initializer_config, 'voxel_size', 0.02)
+        self.sdf_trunc = getattr(initializer_config, 'sdf_trunc', 0.04)
+        self.max_depth = getattr(initializer_config, 'max_depth', 5.0)
+        self.downsample_scale = max(1, int(getattr(initializer_config, 'downsample_scale', 1)))
+
+    def __call__(self, model, dataset, overwrite=False):
+        mesh = self._fuse_tsdf_mesh(dataset)
+        self.mesh = mesh
+        self.mesh.compute_vertex_normals()
+        return self.build_model(model)
+
+    def _fuse_tsdf_mesh(self, dataset):
+        """Iterate dataset, integrate RGB-D with poses into TSDF, and extract a triangle mesh."""
+        volume = o3d.pipelines.integration.ScalableTSDFVolume(
+            voxel_length=float(self.voxel_size),
+            sdf_trunc=float(self.sdf_trunc),
+            color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8,
+        )
+
+        # Iterate dataset and integrate frames
+        for camera in dataset:
+            cam = camera
+            # Optional downsample to save memory and speed up
+            if self.downsample_scale > 1 and hasattr(cam, 'downsample_scale'):
+                try:
+                    cam = cam.downsample_scale(self.downsample_scale)
+                except Exception:
+                    pass
+
+            # Require depth
+            if getattr(cam, 'depth', None) is None:
+                continue
+
+            # Convert color and depth to Open3D images
+            color_np = self._to_numpy_color(cam)
+            depth_np = self._to_numpy_depth(cam)
+            if depth_np is None or color_np is None:
+                continue
+
+            color_o3d = o3d.geometry.Image(color_np)
+            depth_o3d = o3d.geometry.Image(depth_np.astype(np.float32))
+
+            # Camera intrinsics
+            intrinsic = self._build_intrinsic_from_camera(cam, depth_np.shape)
+
+            # Camera extrinsics (world-to-camera)
+            extrinsic = self._build_extrinsic_w2c(cam)
+            if extrinsic is None:
+                # Skip if pose is unavailable
+                continue
+
+            # RGBD (depth in meters)
+            rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+                color_o3d,
+                depth_o3d,
+                depth_scale=1.0,
+                depth_trunc=float(self.max_depth),
+                convert_rgb_to_intensity=False,
+            )
+
+            # Integrate
+            volume.integrate(rgbd, intrinsic, extrinsic)
+
+        mesh = volume.extract_triangle_mesh()
+        mesh.compute_vertex_normals()
+        return mesh
+
+    def _to_numpy_color(self, cam):
+        try:
+            img = cam.image
+            if hasattr(img, 'detach'):
+                img = img.detach().cpu().numpy()
+            else:
+                img = np.asarray(img)
+
+            # Expect HxWx3, value range [0,1] or [0,255]
+            if img.ndim == 3 and img.shape[0] in (1, 3) and img.shape[-1] not in (1, 3):
+                # Possibly CxHxW -> HxWxC
+                img = np.transpose(img, (1, 2, 0))
+
+            if img.ndim == 2:
+                img = np.repeat(img[..., None], 3, axis=2)
+
+            if img.dtype != np.uint8:
+                # Assume float [0,1]
+                img = np.clip(img * 255.0, 0, 255).astype(np.uint8)
+
+            if img.shape[2] == 4:
+                img = img[:, :, :3]
+
+            return img
+        except Exception:
+            return None
+
+    def _to_numpy_depth(self, cam):
+        try:
+            depth = cam.depth
+            if hasattr(depth, 'detach'):
+                depth = depth.detach().cpu().numpy()
+            else:
+                depth = np.asarray(depth)
+
+            # Expect HxW, meters
+            if depth.ndim == 3 and depth.shape[0] == 1:
+                depth = depth[0]
+            depth = depth.astype(np.float32)
+
+            # Clamp invalid values, truncate far depths
+            depth[~np.isfinite(depth)] = 0
+            if self.max_depth is not None:
+                depth = np.where(depth > float(self.max_depth), 0.0, depth)
+            depth = np.maximum(depth, 0.0)
+            return depth
+        except Exception:
+            return None
+
+    def _build_intrinsic_from_camera(self, cam, depth_hw):
+        h, w = depth_hw
+        # Prefer explicit fx/fy/cx/cy
+        fx = getattr(cam, 'fx', None)
+        fy = getattr(cam, 'fy', None)
+        cx = getattr(cam, 'cx', None)
+        cy = getattr(cam, 'cy', None)
+
+        if fx is None or fy is None:
+            # Fallback: compute from FoV
+            FoVx = getattr(cam, 'FoVx', None)
+            FoVy = getattr(cam, 'FoVy', None)
+            if FoVx is not None and FoVy is not None:
+                fx = w / (2.0 * math.tan(float(FoVx) / 2.0))
+                fy = h / (2.0 * math.tan(float(FoVy) / 2.0))
+            else:
+                # Last-resort fallback to avoid crash
+                fx = fy = 0.5 * (w + h)
+
+        if cx is None or cy is None:
+            pp_ndc = getattr(cam, 'principal_point_ndc', None)
+            if pp_ndc is not None and len(pp_ndc) >= 2:
+                try:
+                    cx = float(pp_ndc[0]) * w
+                    cy = float(pp_ndc[1]) * h
+                except Exception:
+                    cx, cy = w * 0.5, h * 0.5
+            else:
+                cx, cy = w * 0.5, h * 0.5
+
+        intrinsic = o3d.camera.PinholeCameraIntrinsic(
+            width=int(w), height=int(h), fx=float(fx), fy=float(fy), cx=float(cx), cy=float(cy)
+        )
+        return intrinsic
+
+    def _build_extrinsic_w2c(self, cam):
+        # Build a 4x4 world-to-camera matrix.
+        # Try extrinsics/w2c, then inv(c2w), then (R,T).
+        mat = getattr(cam, 'extrinsics', None)
+        if mat is None:
+            mat = getattr(cam, 'w2c', None)
+        if mat is None:
+            c2w = getattr(cam, 'c2w', None)
+            if c2w is not None:
+                try:
+                    if hasattr(c2w, 'detach'):
+                        c2w = c2w.detach().cpu().numpy()
+                    else:
+                        c2w = np.asarray(c2w)
+                    mat = np.linalg.inv(c2w)
+                except Exception:
+                    mat = None
+        if mat is None:
+            R = getattr(cam, 'R', None)
+            T = getattr(cam, 'T', None)
+            if R is not None and T is not None:
+                try:
+                    if hasattr(R, 'detach'):
+                        R = R.detach().cpu().numpy()
+                    else:
+                        R = np.asarray(R)
+                    if hasattr(T, 'detach'):
+                        T = T.detach().cpu().numpy()
+                    else:
+                        T = np.asarray(T)
+                    mat = np.eye(4, dtype=np.float64)
+                    mat[:3, :3] = R
+                    mat[:3, 3] = T.reshape(-1)[:3]
+                except Exception:
+                    mat = None
+
+        if mat is None:
+            return None
+
+        if hasattr(mat, 'detach'):
+            mat = mat.detach().cpu().numpy()
+        mat = np.asarray(mat, dtype=np.float64)
+
+        # Ensure shape 4x4
+        if mat.shape == (3, 4):
+            tmp = np.eye(4, dtype=np.float64)
+            tmp[:3, :4] = mat
+            mat = tmp
+        elif mat.shape == (4, 4):
+            pass
+        else:
+            return None
+
+        return mat
+    

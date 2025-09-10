@@ -14,6 +14,7 @@ from typing import List, Dict
 from pathlib import Path
 from tqdm import tqdm
 import torch
+from concurrent.futures import ThreadPoolExecutor
 
 class ColmapDatasetBase:
     # the data only has to be processed once
@@ -59,8 +60,7 @@ class ColmapDatasetBase:
             cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
-        all_cameras_unsorted = []
-        for key in tqdm(cam_extrinsics, total=len(cam_extrinsics), desc="Reading cameras"):
+        def process_camera(key):
             extr = cam_extrinsics[key]
             intr = cam_intrinsics[extr.camera_id]
             height = intr.height
@@ -94,7 +94,7 @@ class ColmapDatasetBase:
 
             image_path = self.images_dir / os.path.basename(extr.name)
             if not image_path.exists():
-                continue
+                return None
             _image = cv2.imread(str(image_path))
             height, width, _ = _image.shape
             
@@ -119,9 +119,9 @@ class ColmapDatasetBase:
                 
             if mask_path is not None:
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-                _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY) # Ensure mask is binary so multiply operation works as expected
-                mask = cv2.resize(mask, (width, height)) # Resize the mask to match the size of the image
-                bg_mask = cv2.bitwise_not(mask) # Invert the mask to get the background
+                _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
+                mask = cv2.resize(mask, (width, height))
+                bg_mask = cv2.bitwise_not(mask)
                 bg_image = cv2.bitwise_and(_image, _image, mask=bg_mask)
                 _image_tensor = torch.from_numpy(cv2.cvtColor(_image, cv2.COLOR_BGR2RGB)).float() / 255
                 _bg_image_tensor = torch.from_numpy(cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)).float() / 255
@@ -133,12 +133,25 @@ class ColmapDatasetBase:
                     _bg_image_tensor = torch.ones((height, width, 3))
                 else:
                     _bg_image_tensor = torch.zeros((height, width, 3))
+            
             _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_name=os.path.basename(extr.name), image_path=image_path, 
                                           image_width=width, image_height=height, principal_point_ndc=np.array([cx / width, cy /height]), 
                                           image=_image_tensor, bg_image=_bg_image_tensor, mask=_mask_tensor, depth=depth_tensor)
             if self.resolution > 1:
                 _camera.downsample_scale(self.resolution)
-            all_cameras_unsorted.append(_camera)
+            return _camera
+
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = []
+            for key in cam_extrinsics:
+                future = executor.submit(process_camera, key)
+                futures.append(future)
+            
+            all_cameras_unsorted = []
+            for future in tqdm(futures, desc="Reading cameras"):
+                camera = future.result()
+                if camera is not None:
+                    all_cameras_unsorted.append(camera)
 
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
         self.nerf_normalization = getNerfppNorm(self.all_cameras)

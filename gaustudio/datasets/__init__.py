@@ -159,7 +159,22 @@ class Camera:
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         
         if self.image_path is not None and self.image is None:
-            self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
+            
+            if str(self.image_path).lower().endswith(".heic") or str(self.image_path).lower().endswith(".heif"):
+                try:
+                    from pillow_heif import register_heif_opener
+                    from PIL import Image, ImageOps
+                    register_heif_opener()
+                except ImportError:
+                    print("Warning: pillow_heif not available. HEIC files may not be processed correctly.")
+                with Image.open(self.image_path) as pil_img:
+                    # Auto-rotate based on EXIF orientation
+                    pil_img = ImageOps.exif_transpose(pil_img)
+                    pil_img = pil_img.convert("RGB")
+            else:
+                pil_img = Image.open(self.image_path).convert("RGB")
+
+            self.image = torch.from_numpy(np.array(pil_img)) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
         

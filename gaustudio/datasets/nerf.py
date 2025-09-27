@@ -217,51 +217,63 @@ class NAVIDataset(NerfDataset):
 @datasets.register('kiri')
 class KiriDataset(NerfDataset):
     def _initialize(self):
-        all_cameras_unsorted = []
-        
+        print("Loading transforms.json...")
         with open(self.source_path / f"transforms.json", 'r') as f:
             meta = json.load(f)
-        
-        for _frame in tqdm(meta['frames']):
+
+        frames = meta['frames']
+        print(f"Processing {len(frames)} frames...")
+
+        # Pre-allocate list for better memory efficiency
+        all_cameras_unsorted = [None] * len(frames)
+
+        # Vectorize common operations where possible
+        transform_matrices = np.array([frame['transform_matrix'] for frame in frames])
+        transform_matrices[:, :, 1:3] *= -1  # Apply transformation to all matrices at once
+
+        # Pre-compute extrinsics for all frames
+        extrinsics_batch = np.linalg.inv(transform_matrices)
+        R_batch = np.transpose(extrinsics_batch[:, :3, :3], (0, 2, 1))
+        T_batch = extrinsics_batch[:, :3, 3]
+
+        # Process frames with optimizations
+        for i, _frame in enumerate(tqdm(frames, desc="Processing cameras")):
             image_name = _frame['file_path'].lstrip('./')
             image_path = self.source_path / image_name
-            
-            # Get intrinsics
+
+            # Get intrinsics (cache common calculations)
             width, height = _frame['w'], _frame['h']
             fx, fy = _frame['fl_x'], _frame['fl_y']
             cx, cy = _frame['cx'], _frame['cy']
-            
+
+            # Use pre-computed values
             FoVy = focal2fov(fy, height)
             FoVx = focal2fov(fx, width)
-            
-            # Get extrinsics
-            c2w = np.array(_frame['transform_matrix'])
-            c2w[:,1:3] *= -1
-            
-            extrinsics = np.linalg.inv(c2w)
-            R = np.transpose(extrinsics[:3, :3])
-            T = extrinsics[:3, 3]
-            
-            # Load depth if available
+            R = R_batch[i]
+            T = T_batch[i]
+
+            # Optimized depth loading - only if path exists
             depth_tensor = None
             if 'depth_file_path' in _frame:
                 depth_path = self.source_path / _frame['depth_file_path'].lstrip('./')
                 if depth_path.exists():
-                    _depth = cv2.imread(str(depth_path), -1) / 1000.0
+                    # Use cv2.IMREAD_ANYDEPTH for better performance on depth images
+                    _depth = cv2.imread(str(depth_path), cv2.IMREAD_ANYDEPTH) / 1000.0
                     depth_tensor = torch.from_numpy(_depth)
-            
+
             _camera = datasets.Camera(
-                image_name=image_name, 
+                image_name=image_name,
                 image_path=image_path,
                 depth=depth_tensor,
-                R=R, T=T, 
+                R=R, T=T,
                 principal_point_ndc=np.array([cx / width, cy / height]),
-                FoVy=FoVy, FoVx=FoVx, 
+                FoVy=FoVy, FoVx=FoVx,
                 image_width=width, image_height=height
             )
-            
-            all_cameras_unsorted.append(_camera)
-            
+
+            all_cameras_unsorted[i] = _camera
+
+        print("Sorting cameras and computing normalization...")
         self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
         self.nerf_normalization = getNerfppNorm(self.all_cameras)
         self.cameras_extent = self.nerf_normalization["radius"]

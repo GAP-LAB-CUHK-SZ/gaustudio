@@ -127,8 +127,14 @@ class ParallelProcessor:
         Returns:
             List of processed results (None entries filtered out)
         """
+        if not items:
+            return []
+
         if max_workers is None:
-            max_workers = min(8, len(items), os.cpu_count())  # Optimal for I/O bound operations
+            cpu_count = os.cpu_count() or 1
+            max_workers = min(8, len(items), cpu_count)  # Optimal for I/O bound operations
+
+        max_workers = max(1, max_workers)
 
         results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:

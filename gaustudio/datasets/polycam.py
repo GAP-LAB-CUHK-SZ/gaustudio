@@ -2,17 +2,14 @@ import os
 import json
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm
-from typing import List, Dict
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from typing import Dict
 
-class PolycamDatasetBase:
+class PolycamDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
+        super().__init__(config)
         
         self.image_dir = self.source_path / "keyframes" / "corrected_images"
         self.cameras_dir = self.source_path /  "keyframes" / "corrected_cameras"
@@ -20,12 +17,6 @@ class PolycamDatasetBase:
                                       key=lambda fn: int(os.path.splitext(os.path.basename(fn))[0]))
 
         self._initialize()
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
         print(f"Processing {len(self.image_filenames)} Polycam images...")
@@ -68,29 +59,15 @@ class PolycamDatasetBase:
                 print(f"Error processing {image_path}: {e}")
                 return None
 
-        # Parallel processing for better performance
-        max_workers = min(4, len(self.image_filenames))  # Limit workers for I/O operations
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(process_image, img_path) for img_path in self.image_filenames]
-            all_cameras_unsorted = []
-
-            for future in tqdm(futures, desc="Processing Polycam cameras"):
-                camera = future.result()
-                if camera is not None:
-                    all_cameras_unsorted.append(camera)
+        all_cameras_unsorted = self.process_in_parallel(
+            self.image_filenames,
+            process_image,
+            desc="Processing Polycam cameras",
+        )
 
         print(f"Successfully processed {len(all_cameras_unsorted)} cameras")
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)
     
 @datasets.register('polycam')
-class PolycamDataset(Dataset, PolycamDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class PolycamDataset(PolycamDatasetBase):
+    pass

@@ -50,17 +50,23 @@ def getWorld2View(R, t):
     return np.float32(Rt)
 
 def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
-    Rt = np.zeros((4, 4))
-    Rt[:3, :3] = R.transpose()
-    Rt[:3, 3] = t
-    Rt[3, 3] = 1.0
+    """Efficient world-to-view matrix computation with optional recenter/scale."""
 
-    C2W = np.linalg.inv(Rt)
-    cam_center = C2W[:3, 3]
+    R_c2w = np.asarray(R, dtype=np.float32)
+    t_w2c = np.asarray(t, dtype=np.float32).reshape(3)
+    translate = np.asarray(translate, dtype=np.float32)
+    scale = np.float32(scale)
+
+    cam_center = -R_c2w @ t_w2c
     cam_center = (cam_center + translate) * scale
-    C2W[:3, 3] = cam_center
-    Rt = np.linalg.inv(C2W)
-    return np.float32(Rt)
+
+    R_w2c = R_c2w.transpose()
+    t_w2c_new = -R_w2c @ cam_center
+
+    Rt = np.eye(4, dtype=np.float32)
+    Rt[:3, :3] = R_w2c
+    Rt[:3, 3] = t_w2c_new
+    return Rt
 
 # Adopted from https://github.com/hbb1/2d-gaussian-splatting/pull/74
 def getProjectionMatrix(znear, zfar, fovX, fovY, width, height, principal_point_ndc=None):
@@ -151,7 +157,8 @@ class Camera:
         if self.principal_point_ndc is None:
             self.principal_point_ndc = np.array([0.5, 0.5])
             
-        self.world_view_transform = torch.tensor(getWorld2View2(self.R, self.T, self.trans, self.scale)).transpose(0, 1)
+        world_view = getWorld2View2(self.R, self.T, self.trans, self.scale)
+        self.world_view_transform = torch.from_numpy(world_view).transpose(0, 1)
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, 
                                                      fovX=self.FoVx, fovY=self.FoVy,
                                                      width=self.image_width, height=self.image_height,
@@ -178,9 +185,13 @@ class Camera:
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
         
-        # Compute camera center from inverse view matrix
-        view_inv = torch.inverse(self.world_view_transform)
-        self.camera_center = view_inv[3][:3]
+        # Compute camera center analytically to avoid repeated matrix inversions
+        R_c2w = np.asarray(self.R, dtype=np.float32)
+        t_w2c = np.asarray(self.T, dtype=np.float32).reshape(3)
+        translate = np.asarray(self.trans, dtype=np.float32)
+        cam_center = -R_c2w @ t_w2c
+        cam_center = (cam_center + translate) * np.float32(self.scale)
+        self.camera_center = torch.from_numpy(cam_center)
     
     def load_image(self, image_path):
         if image_path is not None:

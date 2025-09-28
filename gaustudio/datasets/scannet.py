@@ -2,18 +2,16 @@ import os
 import json
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
-from gaustudio.datasets.optimization_utils import OptimizedImageLoader, ParallelProcessor
-from typing import List, Dict
-from pathlib import Path
-from tqdm import tqdm
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from gaustudio.datasets.optimization_utils import OptimizedImageLoader
+from typing import Dict
 import torch
 
-class ScannetDatasetBase:
+class ScannetDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
+        super().__init__(config)
         
         self.image_dir = self.source_path / "color"
         self.pose_dir = self.source_path /  "pose"
@@ -24,12 +22,6 @@ class ScannetDatasetBase:
         self.image_filenames = self.image_filenames
         
         self._initialize()
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
         print(f"Loading ScanNet dataset with {len(self.image_filenames)} images...")
@@ -78,35 +70,16 @@ class ScannetDatasetBase:
                 return None
 
         # Use parallel processing
-        all_cameras_unsorted = ParallelProcessor.process_parallel(
+        all_cameras_unsorted = self.process_in_parallel(
             self.image_filenames,
             process_scannet_frame,
-            max_workers=4,
-            desc="Processing ScanNet cameras"
+            desc="Processing ScanNet cameras",
         )
 
         print(f"Successfully processed {len(all_cameras_unsorted)} ScanNet cameras")
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: int(
-            os.path.splitext(os.path.basename(x.image_name))[0]))
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-    
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        sort_key = lambda cam: int(os.path.splitext(os.path.basename(cam.image_name))[0])
+        self.finalize_cameras(all_cameras_unsorted, sort_key=sort_key)
 
 @datasets.register('scannet')
-class ScannetDataset(Dataset, ScannetDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class ScannetDataset(ScannetDatasetBase):
+    pass

@@ -2,11 +2,10 @@ import os
 import json
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
-from typing import List, Dict 
-from pathlib import Path
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from typing import Dict
 import torch
 
 def load_from_log(file_path):
@@ -27,20 +26,14 @@ def load_from_log(file_path):
                            [float(value) for value in content[line + 6].split()]])
     return image_ids, intrinsics, extrinsics
 
-class NisrDatasetBase:
+class NisrDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
-        self.image_path = Path(config['source_path']) / "images"
-        self.mask_path = Path(config['source_path']) / "mask"
-        self.cams_path = Path(config['source_path']) / "camera.log"
+        super().__init__(config)
+        self.image_path = self.source_path / "images"
+        self.mask_path = self.source_path / "mask"
+        self.cams_path = self.source_path / "camera.log"
         self.w_mask = config.get('w_mask', False)
         self._initialize()
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
         all_cameras = []
@@ -84,26 +77,9 @@ class NisrDatasetBase:
                                       image_width=width, image_height=height, mask=_mask_tensor,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras.append(_camera)
-        self.all_cameras = all_cameras
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-    
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        sort_key = lambda cam: int(os.path.splitext(cam.image_name)[0])
+        self.finalize_cameras(all_cameras, sort_key=sort_key)
 
 @datasets.register('nisr')
-class NisrDataset(Dataset, NisrDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class NisrDataset(NisrDatasetBase):
+    pass

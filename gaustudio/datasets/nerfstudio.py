@@ -2,33 +2,23 @@ import os
 import json
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
-from typing import List, Dict
-from pathlib import Path
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from typing import Dict
 import math
 import torch
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
 
-class NerfStudioDatasetBase:
+class NerfStudioDatasetBase(BaseDataset):
     transform_path = 'transforms.json'
     
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
-        self.image_path = Path(config['source_path'])
-        self.masks_dir = Path(config['source_path'])
-        self.white_background = config.get('white_background', False)
+        super().__init__(config)
+        self.image_path = self.source_path
+        self.masks_dir = self.source_path
         self.w_mask = config.get('w_mask', False)
         
         self._initialize()
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
         print("Loading NerfStudio transforms...")
@@ -115,52 +105,20 @@ class NerfStudioDatasetBase:
                 print(f"Error processing frame {_frame.get('file_path', 'unknown')}: {e}")
                 return None
 
-        # Parallel processing for better performance
-        max_workers = min(4, len(frames))  # Limit workers for I/O operations
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(process_frame, frame) for frame in frames]
-            all_cameras_unsorted = []
-
-            for future in tqdm(futures, desc="Processing NerfStudio cameras"):
-                camera = future.result()
-                if camera is not None:
-                    all_cameras_unsorted.append(camera)
+        all_cameras_unsorted = self.process_in_parallel(
+            frames,
+            process_frame,
+            desc="Processing NerfStudio cameras",
+        )
 
         print(f"Successfully processed {len(all_cameras_unsorted)} cameras")
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-        self.cameras_center = self.nerf_normalization["translate"]
-        self.cameras_min_extent = self.nerf_normalization["min_radius"]
-
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        self.finalize_cameras(all_cameras_unsorted)
             
 @datasets.register('nerfstudio')
-class NerfStudioDataset(Dataset, NerfStudioDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class NerfStudioDataset(NerfStudioDatasetBase):
+    pass
 
 @datasets.register('mushroom')
-class MuSHRoomDataset(Dataset, NerfStudioDatasetBase):
+class MuSHRoomDataset(NerfStudioDatasetBase):
     transform_path = 'transformations_colmap.json'
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+    pass

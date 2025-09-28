@@ -138,7 +138,7 @@ class HlocInitializer(ColmapInitializer):
         if not hloc_installed:
             raise ImportError("Please install hloc to use HlocInitializer.")
 
-        create_images_from_pose_dict(self.ws_dir, self.pose_dict)
+        create_images_from_pose_dict(self.ws_dir, self.pose_dict, self.filename_lookup)
         sfm_pairs = Path(f'{self.ws_dir}/pairs-sfm.txt')
         
         
@@ -164,7 +164,7 @@ class LoftrInitializer(ColmapInitializer):
         if not hloc_installed:
             raise ImportError("Please install hloc to use LoftrInitializer.")
 
-        create_images_from_pose_dict(self.ws_dir, self.pose_dict)
+        create_images_from_pose_dict(self.ws_dir, self.pose_dict, self.filename_lookup)
         sfm_pairs = Path(f'{self.ws_dir}/pairs-sfm.txt')
         pairs_from_poses.main(Path(f'{self.ws_dir}/model'), sfm_pairs, num_matched=10)
         matcher_conf = match_dense.confs['loftr']

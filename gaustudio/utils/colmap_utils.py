@@ -31,10 +31,12 @@
 
 # This script is based on an original implementation by True Price.
 
-import sys
-import sqlite3
-import numpy as np
 import os
+import sqlite3
+import sys
+from pathlib import Path
+
+import numpy as np
 
 def create_cameras_and_points_bin(target: str, intrinsic_dict):
     os.makedirs(f'{target}/model', exist_ok=True)
@@ -45,17 +47,19 @@ def create_cameras_and_points_bin(target: str, intrinsic_dict):
     write_cameras_binary(cameras, f"{target}/model/cameras.bin")
 
 
-def create_images_txt(target: str, pose_dict: dict, images: list):
+def create_images_txt(target: str, pose_dict: dict, images: list, filename_lookup=None):
     data_list = []
     for image in images:
-        img_name = image[1][:-4]
-        print(img_name)
-        rt = pose_dict[img_name]
+        file_name = image[1]
+        img_stem = Path(file_name).stem
+        print(img_stem)
+        rt = pose_dict[img_stem]
         rt = np.linalg.inv(rt)
         r = rt[:3, :3]
         t = rt[:3, 3]
         q = rotmat2qvec(r)
-        data = [image[0], *q, *t, 1, f'{img_name}.jpg']
+        target_file = filename_lookup.get(img_stem, file_name) if filename_lookup else file_name
+        data = [image[0], *q, *t, 1, target_file]
         data = [str(_) for _ in data]
         data = ' '.join(data)
         data_list.append(data)
@@ -66,22 +70,24 @@ def create_images_txt(target: str, pose_dict: dict, images: list):
             f.write('\n\n')
             
 
-def create_images_bin(target: str, pose_dict: dict, images: list):
+def create_images_bin(target: str, pose_dict: dict, images: list, filename_lookup=None):
     images_dict = {}
     for image in images:
-        img_name = image[1][:-4]
-        rt = pose_dict[img_name]
+        file_name = image[1]
+        img_stem = Path(file_name).stem
+        rt = pose_dict[img_stem]
         rt = np.linalg.inv(rt)
         r = rt[:3, :3]
         tvec = rt[:3, 3]
         qvec = rotmat2qvec(r)
         
         image_id = image[0]
+        target_file = filename_lookup.get(img_stem, file_name) if filename_lookup else file_name
         images_dict[image_id] = Image(
                 id=image_id, qvec=qvec, tvec=tvec,
-                camera_id=1, name=img_name+'.jpg',
+                camera_id=1, name=target_file,
                 xys=[], point3D_ids=[])
-    
+
     write_images_binary(images_dict, f'{target}/model/images.bin')
     
     
@@ -808,7 +814,7 @@ def write_points3D_binary(points3D, path_to_model_file):
             for image_id, point2D_id in zip(pt.image_ids, pt.point2D_idxs):
                 write_next_bytes(fid, [image_id, point2D_id], "ii")
 
-def create_images_from_pose_dict(ws_dir, pose_dict):
+def create_images_from_pose_dict(ws_dir, pose_dict, filename_lookup=None):
     images = {}
     for image_name, rt in pose_dict.items():
         rt = np.linalg.inv(rt)
@@ -816,10 +822,13 @@ def create_images_from_pose_dict(ws_dir, pose_dict):
         tvec = rt[:3, 3]
         qvec = rotmat2qvec(r)
         image_id = int(image_name)
-        
+        if filename_lookup is not None:
+            target_file = filename_lookup.get(image_name, f"{image_name}.jpg")
+        else:
+            target_file = f"{image_name}.jpg"
         images[image_id] = Image(
                 id=image_id, qvec=qvec, tvec=tvec,
-                camera_id=1, name=image_name+'.jpg',
+                camera_id=1, name=target_file,
                 xys=[], point3D_ids=[])
         
     write_images_binary(images, f'{ws_dir}/model/images.bin')

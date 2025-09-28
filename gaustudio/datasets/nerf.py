@@ -2,29 +2,21 @@ import os
 import json
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON
-from typing import List, Dict 
-from pathlib import Path
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from typing import Dict
 import math
 import torch
 from tqdm import tqdm
 
-class NerfDatasetBase:
+class NerfDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
-        self.image_path = Path(config['source_path'])
-        
+        super().__init__(config)
+        self.image_path = self.source_path
         self.split = config.get('split', 'train')
-        self._initialize()
         self.ply_path = None
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
+        self._initialize()
     
     def _initialize(self):
         all_cameras_unsorted = []
@@ -51,32 +43,14 @@ class NerfDatasetBase:
             extrinsics = np.linalg.inv(c2w)
             R = np.transpose(extrinsics[:3, :3])
             T = extrinsics[:3, 3]
-            
+
             _camera = datasets.Camera(R=R, T=T, FoVy=FoVy, FoVx=FoVx, image_path=image_path, image_width=width, image_height=height)
             all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-    
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        self.finalize_cameras(all_cameras_unsorted)
             
 @datasets.register('nerf')
-class NerfDataset(Dataset, NerfDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class NerfDataset(NerfDatasetBase):
+    pass
 
 def linear_to_srgb(img):
     limit = 0.0031308
@@ -148,9 +122,7 @@ class RTMVDataset(NerfDataset):
             _camera.depth = _camera.nerfdepth2depth(_depth_tensor)
             
             all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)
 
 def quaternion_to_rotation_matrix(q: np.ndarray) -> np.ndarray:
     """Convert quaternion to rotation matrix."""
@@ -210,9 +182,7 @@ class NAVIDataset(NerfDataset):
                                       FoVy=FoVy, FoVx=FoVx, image_width=width, image_height=height)
             
             all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)
         
 @datasets.register('kiri')
 class KiriDataset(NerfDataset):
@@ -274,9 +244,7 @@ class KiriDataset(NerfDataset):
             all_cameras_unsorted[i] = _camera
 
         print("Sorting cameras and computing normalization...")
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)
 
 @datasets.register('trellis')
 class TrellisDataset(NerfDataset):
@@ -358,6 +326,4 @@ class TrellisDataset(NerfDataset):
             
             all_cameras_unsorted.append(_camera)
         
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name)
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)

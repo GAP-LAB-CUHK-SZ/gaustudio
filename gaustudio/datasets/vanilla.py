@@ -1,20 +1,13 @@
-import os
 import json
-import cv2
-import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm, camera_to_JSON, JSON_to_camera
-from typing import List, Dict
-from pathlib import Path
-import math
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import JSON_to_camera
+from typing import Dict
 
-class VanillaDatasetBase:
+class VanillaDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
-        self.image_path = Path(config['source_path']) / "images"
+        super().__init__(config)
+        self.image_path = self.source_path / "images"
         
         self._initialize()
         self.ply_path = None
@@ -43,38 +36,15 @@ class VanillaDatasetBase:
                 print(f"Error processing camera {camera_dict.get('img_name', 'unknown')}: {e}")
                 return None
 
-        # Parallel processing for better performance
-        max_workers = min(4, len(camera_data))  # Limit workers for I/O operations
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(process_camera, cam_dict) for cam_dict in camera_data]
-            all_cameras = []
-
-            for future in tqdm(futures, desc="Processing vanilla cameras"):
-                camera = future.result()
-                if camera is not None:
-                    all_cameras.append(camera)
+        all_cameras = self.process_in_parallel(
+            camera_data,
+            process_camera,
+            desc="Processing vanilla cameras",
+        )
 
         print(f"Successfully processed {len(all_cameras)} cameras")
-        self.all_cameras = sorted(all_cameras, key=lambda x: x.image_name)
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-    
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        self.finalize_cameras(all_cameras)
             
 @datasets.register('vanilla')
-class VanillaDataset(Dataset, VanillaDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class VanillaDataset(VanillaDatasetBase):
+    pass

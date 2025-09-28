@@ -1,27 +1,20 @@
 from gaustudio.datasets.utils import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
-                                     read_extrinsics_binary, read_intrinsics_binary, \
-                                     focal2fov, getNerfppNorm, camera_to_JSON, storePly
+                                     read_extrinsics_binary, read_intrinsics_binary, focal2fov
+from gaustudio.datasets.base import BaseDataset
 from gaustudio import datasets
-from torch.utils.data import Dataset, DataLoader
 
 import os
 import cv2
-import json
 import warnings
 import numpy as np
-from PIL import Image
-from typing import List, Dict 
-from pathlib import Path
-from tqdm import tqdm
+from typing import Dict
 import torch
-from concurrent.futures import ThreadPoolExecutor
 
-class ColmapDatasetBase:
+class ColmapDatasetBase(BaseDataset):
     # the data only has to be processed once
     def __init__(self, config: Dict):
-        self._validate_config(config)
-        self.path = Path(config['source_path'])
-        self.white_background = config.get('white_background', False)
+        super().__init__(config)
+        self.path = self.source_path
         self.images_dir = self.path / config.get('images', 'images')
         self.sparse_dir = self.path / config.get('sparse', 'sparse')
         self.depths_dir = self.path / config.get('depths', 'depths')
@@ -35,15 +28,6 @@ class ColmapDatasetBase:
             self.w_mask = config.get('w_mask', False)
         self.eval = config.get('eval', False)
         self._initialize()
-    
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
-    
-    def downsample_scale(self, resolution_scale):
-        self.all_cameras = [c.downsample_scale(resolution_scale) for c in self.all_cameras]
 
     def _initialize(self):
         scene_dir = os.path.join(self.path, "sparse", "0")
@@ -153,42 +137,14 @@ class ColmapDatasetBase:
                 _camera.downsample_scale(self.resolution)
             return _camera
 
-        # Optimize thread count for I/O bound operations
-        max_workers = min(8, os.cpu_count())  # Limit to 8 threads for optimal I/O performance
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for key in cam_extrinsics:
-                future = executor.submit(process_camera, key)
-                futures.append(future)
-            
-            all_cameras_unsorted = []
-            for future in tqdm(futures, desc="Reading cameras"):
-                camera = future.result()
-                if camera is not None:
-                    all_cameras_unsorted.append(camera)
+        all_cameras_unsorted = self.process_in_parallel(
+            cam_extrinsics.keys(),
+            process_camera,
+            desc="Reading cameras",
+        )
 
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-        self.cameras_center = self.nerf_normalization["translate"]
-        self.cameras_min_extent = self.nerf_normalization["min_radius"]
-
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        self.finalize_cameras(all_cameras_unsorted)
 
 @datasets.register('colmap')
-class ColmapDataset(Dataset, ColmapDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class ColmapDataset(ColmapDatasetBase):
+    pass

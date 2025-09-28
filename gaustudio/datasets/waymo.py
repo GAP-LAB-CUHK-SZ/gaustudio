@@ -1,6 +1,6 @@
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm
-from torch.utils.data import Dataset, DataLoader
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
 import tempfile
 
 import os
@@ -10,7 +10,7 @@ import json
 
 import numpy as np
 from PIL import Image
-from typing import List, Dict 
+from typing import Dict
 from pathlib import Path
 import pickle
 
@@ -51,11 +51,11 @@ def generate_sample(scenario_data, frame_idx, camera_id):
 
     return sample
 
-class WaymoDatasetBase:
+class WaymoDatasetBase(BaseDataset):
     # the data only has to be processed once
     def __init__(self, config: Dict):
-        self._validate_config(config)
-        self.path = Path(config['source_path'])
+        super().__init__(config)
+        self.path = self.source_path
         scenario_path = self.path / "scenario.pt"
         self.camera_number = config.get('camera_number', 1)
         self.camera_ids = cameras[:self.camera_number]
@@ -64,15 +64,6 @@ class WaymoDatasetBase:
         with open(scenario_path, 'rb') as f:
             scenario_data = pickle.load(f)
         self._initialize(scenario_data)
-
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
-    
-    def downsample_scale(self, resolution_scale):
-        self.all_cameras = [c.downsample_scale(resolution_scale) for c in self.all_cameras]
 
     def _initialize(self, scenario_data):
         all_cameras_unsorted = []
@@ -108,26 +99,8 @@ class WaymoDatasetBase:
                                           image_width=width, image_height=height,
                                           principal_point_ndc=np.array([cx / width, cy /height]))
                 all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
-
-    def export(self, save_path):
-        json_cams = []
-        camlist = []
-        camlist.extend(self.all_cameras)
-        for id, cam in enumerate(camlist):
-            json_cams.append(camera_to_JSON(id, cam))
-        with open(save_path, 'w') as file:
-            json.dump(json_cams, file)
+        self.finalize_cameras(all_cameras_unsorted)
 
 @datasets.register('waymo')
-class WaymoDataset(Dataset, WaymoDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class WaymoDataset(WaymoDatasetBase):
+    pass

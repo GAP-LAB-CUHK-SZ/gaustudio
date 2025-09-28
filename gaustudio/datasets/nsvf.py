@@ -2,15 +2,14 @@ import os
 import json
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm
-from typing import List, Dict 
-from pathlib import Path
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from typing import Dict
 
-class NSVFDatasetBase:
+class NSVFDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
+        super().__init__(config)
         
         self.image_dir = self.source_path / "rgb"
         self.pose_dir = self.source_path /  "pose"
@@ -22,12 +21,6 @@ class NSVFDatasetBase:
                 self.image_filenames.append(os.path.join(self.image_dir, f))
         self.image_filenames = sorted(self.image_filenames, key=lambda fn: os.path.splitext(os.path.basename(fn))[0].split('_')[-1])
         self._initialize()
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
         all_cameras_unsorted = []
@@ -55,17 +48,8 @@ class NSVFDatasetBase:
                                       image_width=width, image_height=height,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)
     
 @datasets.register('nsvf')
-class NSVFDataset(Dataset, NSVFDatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class NSVFDataset(NSVFDatasetBase):
+    pass

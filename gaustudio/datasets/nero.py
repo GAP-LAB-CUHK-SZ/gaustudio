@@ -1,14 +1,9 @@
-import os
-import json
 import cv2
 import numpy as np
-import glob
-from torch.utils.data import Dataset, DataLoader
 from gaustudio import datasets
-from gaustudio.datasets.utils import focal2fov, getNerfppNorm
-from typing import List, Dict 
-from pathlib import Path
-import math
+from gaustudio.datasets.base import BaseDataset
+from gaustudio.datasets.utils import focal2fov
+from typing import Dict
 import pickle
 
 def read_pickle(pkl_path):
@@ -16,21 +11,15 @@ def read_pickle(pkl_path):
         return pickle.load(f)
 
 
-class NeRODatasetBase:
+class NeRODatasetBase(BaseDataset):
     def __init__(self, config: Dict):
-        self.source_path = Path(config['source_path'])
-        self.image_path = Path(config['source_path'])
+        super().__init__(config)
+        self.image_path = self.source_path
         
         self.image_ids = sorted([int(f.stem.split('-')[0]) for f in self.source_path.glob("*-camera.pkl")])
 
 
         self._initialize()
-        
-    def _validate_config(self, config: Dict):
-        required_keys = ['source_path']
-        for k in required_keys:
-            if k not in config:
-                raise ValueError(f"Config must contain '{k}' key")
     
     def _initialize(self):
         all_cameras_unsorted = []
@@ -56,17 +45,8 @@ class NeRODatasetBase:
                                       image_width=width, image_height=height,
                                       principal_point_ndc=np.array([cx / width, cy /height]))
             all_cameras_unsorted.append(_camera)
-        self.all_cameras = sorted(all_cameras_unsorted, key=lambda x: x.image_name) 
-        self.nerf_normalization = getNerfppNorm(self.all_cameras)
-        self.cameras_extent = self.nerf_normalization["radius"]
+        self.finalize_cameras(all_cameras_unsorted)
     
 @datasets.register('nero')
-class NeRODataset(Dataset, NeRODatasetBase):
-    def __init__(self, config):
-        super().__init__(config)
-
-    def __len__(self):
-        return len(self.all_cameras)
-    
-    def __getitem__(self, index):
-        return self.all_cameras[index]
+class NeRODataset(NeRODatasetBase):
+    pass

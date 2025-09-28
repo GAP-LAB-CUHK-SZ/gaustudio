@@ -111,17 +111,23 @@ def focal2fov(focal, pixels):
 
 
 def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
-    Rt = np.zeros((4, 4))
-    Rt[:3, :3] = R.transpose()
-    Rt[:3, 3] = t
-    Rt[3, 3] = 1.0
+    """Efficient world-to-view matrix computation with optional recenter/scale."""
 
-    C2W = np.linalg.inv(Rt)
-    cam_center = C2W[:3, 3]
+    R_c2w = np.asarray(R, dtype=np.float32)
+    t_w2c = np.asarray(t, dtype=np.float32).reshape(3)
+    translate = np.asarray(translate, dtype=np.float32)
+    scale = np.float32(scale)
+
+    cam_center = -R_c2w @ t_w2c
     cam_center = (cam_center + translate) * scale
-    C2W[:3, 3] = cam_center
-    Rt = np.linalg.inv(C2W)
-    return np.float32(Rt)
+
+    R_w2c = R_c2w.transpose()
+    t_w2c_new = -R_w2c @ cam_center
+
+    Rt = np.eye(4, dtype=np.float32)
+    Rt[:3, :3] = R_w2c
+    Rt[:3, 3] = t_w2c_new
+    return Rt
 
 CameraModel = collections.namedtuple(
     "CameraModel", ["model_id", "model_name", "num_params"])

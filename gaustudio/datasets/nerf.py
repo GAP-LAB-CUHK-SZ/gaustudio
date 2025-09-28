@@ -206,32 +206,30 @@ class KiriDataset(NerfDataset):
         R_batch = np.transpose(extrinsics_batch[:, :3, :3], (0, 2, 1))
         T_batch = extrinsics_batch[:, :3, 3]
 
-        # Process frames with optimizations
-        for i, _frame in enumerate(tqdm(frames, desc="Processing cameras")):
-            image_name = _frame['file_path'].lstrip('./')
+        def build_camera(args):
+            idx, frame = args
+            image_name = frame['file_path'].lstrip('./')
             image_path = self.source_path / image_name
 
-            # Get intrinsics (cache common calculations)
-            width, height = _frame['w'], _frame['h']
-            fx, fy = _frame['fl_x'], _frame['fl_y']
-            cx, cy = _frame['cx'], _frame['cy']
+            width, height = frame['w'], frame['h']
+            fx, fy = frame['fl_x'], frame['fl_y']
+            cx, cy = frame['cx'], frame['cy']
 
-            # Use pre-computed values
             FoVy = focal2fov(fy, height)
             FoVx = focal2fov(fx, width)
-            R = R_batch[i]
-            T = T_batch[i]
+            R = R_batch[idx]
+            T = T_batch[idx]
 
-            # Optimized depth loading - only if path exists
             depth_tensor = None
-            if 'depth_file_path' in _frame:
-                depth_path = self.source_path / _frame['depth_file_path'].lstrip('./')
+            depth_key = frame.get('depth_file_path')
+            if depth_key:
+                depth_path = self.source_path / depth_key.lstrip('./')
                 if depth_path.exists():
-                    # Use cv2.IMREAD_ANYDEPTH for better performance on depth images
-                    _depth = cv2.imread(str(depth_path), cv2.IMREAD_ANYDEPTH) / 1000.0
-                    depth_tensor = torch.from_numpy(_depth)
+                    depth_image = cv2.imread(str(depth_path), cv2.IMREAD_ANYDEPTH)
+                    if depth_image is not None:
+                        depth_tensor = torch.from_numpy(depth_image / 1000.0)
 
-            _camera = datasets.Camera(
+            camera = datasets.Camera(
                 image_name=image_name,
                 image_path=image_path,
                 depth=depth_tensor,
@@ -241,7 +239,11 @@ class KiriDataset(NerfDataset):
                 image_width=width, image_height=height
             )
 
-            all_cameras_unsorted[i] = _camera
+            return idx, camera
+
+        build_items = list(enumerate(frames))
+        for idx, camera in self.process_in_parallel(build_items, build_camera, desc="Processing cameras"):
+            all_cameras_unsorted[idx] = camera
 
         print("Sorting cameras and computing normalization...")
         self.finalize_cameras(all_cameras_unsorted)

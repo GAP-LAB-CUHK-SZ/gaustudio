@@ -143,7 +143,7 @@ class HlocInitializer(ColmapInitializer):
         
         
         feature_conf = extract_features.confs["superpoint_aachen"]
-        pairs_from_poses_main(Path(f'{self.ws_dir}/model'), sfm_pairs, overlap=5)
+        pairs_from_poses_main(Path(f'{self.ws_dir}/model'), sfm_pairs, overlap=10)
         matcher_conf = match_features.confs["superpoint+lightglue"]
         features = extract_features.main(
             feature_conf, Path(self.images_dir) ,

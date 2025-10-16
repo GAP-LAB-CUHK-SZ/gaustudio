@@ -9,6 +9,27 @@ from typing import Dict
 import math
 import torch
 from tqdm import tqdm
+from pathlib import Path
+
+
+def _load_rgb_image(path: Path) -> np.ndarray:
+    """Load an image as an RGB numpy array, handling HEIC files when possible."""
+    from PIL import Image, ImageOps
+
+    suffix = path.suffix.lower()
+    if suffix in {".heic", ".heif"}:
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError as exc:
+            raise ImportError(
+                "pillow_heif is required to process HEIC images. Install it via `pip install pillow_heif`."
+            ) from exc
+
+    with Image.open(path) as pil_img:
+        pil_img = ImageOps.exif_transpose(pil_img)
+        pil_img = pil_img.convert("RGB")
+        return np.ascontiguousarray(np.asarray(pil_img))
 
 class NerfDatasetBase(BaseDataset):
     def __init__(self, config: Dict):
@@ -211,9 +232,56 @@ class KiriDataset(NerfDataset):
             image_name = frame['file_path'].lstrip('./')
             image_path = self.source_path / image_name
 
-            width, height = frame['w'], frame['h']
-            fx, fy = frame['fl_x'], frame['fl_y']
-            cx, cy = frame['cx'], frame['cy']
+            width = int(round(frame['w']))
+            height = int(round(frame['h']))
+            fx = float(frame['fl_x'])
+            fy = float(frame['fl_y'])
+            cx = float(frame['cx'])
+            cy = float(frame['cy'])
+
+            image_tensor = None
+
+            distortion_terms = [frame.get(key) for key in ('k1', 'k2', 'p1', 'p2', 'k3')]
+            has_distortion = any(term is not None for term in distortion_terms)
+
+            if has_distortion:
+                k1, k2, p1, p2, k3 = [float(term or 0.0) for term in distortion_terms]
+                dist_coeffs = np.array([k1, k2, p1, p2, k3], dtype=np.float32)
+                camera_matrix = np.array(
+                    [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
+                    dtype=np.float32,
+                )
+
+                raw_image = _load_rgb_image(image_path)
+                raw_height, raw_width = raw_image.shape[:2]
+                if raw_width != width or raw_height != height:
+                    width, height = raw_width, raw_height
+
+                new_camera_matrix, _ = cv2.getOptimalNewCameraMatrix(
+                    camera_matrix,
+                    dist_coeffs,
+                    (width, height),
+                    0.0,
+                    (width, height),
+                )
+
+                undistorted = cv2.undistort(
+                    raw_image,
+                    camera_matrix,
+                    dist_coeffs,
+                    None,
+                    new_camera_matrix,
+                )
+
+                height, width = undistorted.shape[:2]
+                fx = float(new_camera_matrix[0, 0])
+                fy = float(new_camera_matrix[1, 1])
+                cx = float(new_camera_matrix[0, 2])
+                cy = float(new_camera_matrix[1, 2])
+
+                image_tensor = torch.from_numpy(
+                    undistorted.astype(np.float32) / 255.0
+                )
 
             FoVy = focal2fov(fy, height)
             FoVx = focal2fov(fx, width)
@@ -232,11 +300,15 @@ class KiriDataset(NerfDataset):
             camera = datasets.Camera(
                 image_name=image_name,
                 image_path=image_path,
+                image=image_tensor,
                 depth=depth_tensor,
-                R=R, T=T,
+                R=R,
+                T=T,
                 principal_point_ndc=np.array([cx / width, cy / height]),
-                FoVy=FoVy, FoVx=FoVx,
-                image_width=width, image_height=height
+                FoVy=FoVy,
+                FoVx=FoVx,
+                image_width=width,
+                image_height=height,
             )
 
             return idx, camera
@@ -247,6 +319,13 @@ class KiriDataset(NerfDataset):
 
         print("Sorting cameras and computing normalization...")
         self.finalize_cameras(all_cameras_unsorted)
+
+    def finalize_cameras(self, cameras):
+        valid = [camera for camera in cameras if camera is not None]
+        if not valid:
+            raise ValueError("No valid cameras were produced by dataset loader")
+        self.all_cameras = valid
+        self._update_normalization()
 
 @datasets.register('trellis')
 class TrellisDataset(NerfDataset):

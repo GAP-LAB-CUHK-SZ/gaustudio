@@ -29,43 +29,52 @@ def _process_mesh_based_initializer(initializer_obj, pcd_model, mesh_path, datas
     # Process mesh with initializer
     return initializer_obj(pcd_model, mesh, dataset=dataset_obj, overwrite=overwrite)
 
-def _run_pose_initializer(output_dir, config, overwrite, dataset_obj):
+def _run_pose_initializer(output_dir, config, overwrite, dataset_obj, use_bundle_adjustment):
     """
     Run pose initializer with fallback mechanism.
-    
+
     Args:
         output_dir: Output directory path
         config: Configuration file path
         overwrite: Whether to overwrite existing files
         dataset_obj: Dataset object
-        
+        use_bundle_adjustment: Whether to use bundle adjustment for intrinsic calibration
+
     Returns:
         The final point cloud from pose initialization
     """
     from gaustudio import models
     from gaustudio.pipelines import initializers
-    
+
     pcd_model = models.make("general_pcd")
-    
-    # Try hloc first
-    print("Trying hloc pose initializer...")
-    hloc_config = {"name": "hloc", "workspace_dir": output_dir}
-    
+
+    # Try hloc family first
+    primary_initializer_name = "hloc_opencv" if use_bundle_adjustment else "hloc"
+    print(f"Trying {primary_initializer_name} pose initializer...")
+    hloc_config = {
+        "name": primary_initializer_name,
+        "workspace_dir": output_dir,
+        "use_bundle_adjustment": use_bundle_adjustment
+    }
+
     if config:
         if not os.path.exists(config):
             raise FileNotFoundError(f"Configuration file not found: {config}")
         custom_config = load_config(config)
         hloc_config.update(custom_config.get('pose_initializer', {}))
-    
+        if use_bundle_adjustment:
+            # Ensure command line flag has precedence
+            hloc_config['use_bundle_adjustment'] = use_bundle_adjustment
+
     try:
         hloc_initializer_obj = initializers.make(hloc_config)
         final_pcd = hloc_initializer_obj(pcd_model, dataset_obj, overwrite=overwrite)
-        print("Pose initialization completed using hloc")
+        print(f"Pose initialization completed using {primary_initializer_name}")
         return final_pcd
     except Exception as e:
-        print(f"Error with hloc pose initializer: {e}")
+        print(f"Error with {primary_initializer_name} pose initializer: {e}")
         print("Falling back to colmap pose initializer...")
-        
+
         # Fallback to colmap
         try:
             colmap_config = {"name": 'colmap', "workspace_dir": output_dir}
@@ -159,14 +168,15 @@ def _create_dataset(dataset, source_path, w_mask, resolution):
               help='Geometry initializer to use for point cloud generation')
 @click.option('--mesh_path', '-m', help='Path to mesh file (required for mesh and voxel geometry initializers)')
 @click.option('--config', '-c', help='Path to configuration file for advanced initializer settings')
+@click.option('--ba', is_flag=True, help='Use hloc_opencv pose initializer for bundle adjustment')
 def main(dataset: str, source_path: Optional[str], output_dir: Optional[str], 
         overwrite: bool, w_mask: str, resolution: int, 
-        initializer: Optional[str], mesh_path: Optional[str], config: Optional[str]) -> None:
+        initializer: Optional[str], mesh_path: Optional[str], config: Optional[str], ba: bool) -> None:
     """
     Initialize Gaussian Splatting with pose and optional geometry initialization.
     
     This script performs a two-step initialization process:
-    1. Pose initialization using hloc (with colmap fallback)
+    1. Pose initialization using hloc/hloc_opencv (with colmap fallback)
     2. Optional geometry initialization using various methods
     """
     from gaustudio import models
@@ -179,7 +189,7 @@ def main(dataset: str, source_path: Optional[str], output_dir: Optional[str],
     dataset_obj = _create_dataset(dataset, source_path, w_mask, resolution)
 
     # Step 2: Run pose initializer (try hloc first, fallback to colmap)
-    _run_pose_initializer(output_dir, config, overwrite, dataset_obj)
+    _run_pose_initializer(output_dir, config, overwrite, dataset_obj, ba)
 
     # Step 3: Run geometry initializer if specified
     if initializer:
@@ -195,7 +205,6 @@ def main(dataset: str, source_path: Optional[str], output_dir: Optional[str],
         if config:
             custom_config = load_config(config)
             geometry_config.update(custom_config.get('initializer', {}))
-        
         try:
             initializer_obj = initializers.make(geometry_config)
             

@@ -36,7 +36,12 @@ from pytorch3d.renderer.mesh.shader import ShaderBase
 class VertexColorShader(ShaderBase):
     def forward(self, fragments, meshes, **kwargs) -> torch.Tensor:
         blend_params = kwargs.get("blend_params", self.blend_params)
-        texels = meshes.sample_textures(fragments)
+        if meshes.textures is None:
+            device = fragments.bary_coords.device
+            N, H, W, K, _ = fragments.bary_coords.shape
+            texels = torch.ones((N, H, W, K, 3), device=device)
+        else:
+            texels = meshes.sample_textures(fragments)
         return hard_rgb_blend(texels, fragments, blend_params)
 
 def np_depth_to_colormap(depth):
@@ -211,7 +216,8 @@ def fix_mesh_normals(meshes: Meshes, camera_positions: torch.Tensor):
     fixed_meshes = Meshes(
         verts=[vertices.cuda()],
         faces=[meshes.faces_packed().cuda()],
-        verts_normals=[new_normals.cuda()]
+        verts_normals=[new_normals.cuda()],
+        textures=meshes.textures
     )
 
     return fixed_meshes
@@ -221,7 +227,7 @@ def fix_mesh_normals(meshes: Meshes, camera_positions: torch.Tensor):
 @click.option('--dataset', '-d', type=str, default='colmap')
 @click.option('--camera', '-c', default=None, help='path to cameras.json')
 @click.option('--mesh', '-m', default=None, help='path to the mesh')
-@click.option('--source_path', '-s', required=True, help='path to the dataset')
+@click.option('--source_path', '-s', required=False, help='path to the dataset')
 @click.option('--output-dir', '-o', required=True, help='path to the output dir')
 @click.option('--color', is_flag=True, help='render color')
 def main(gpu, dataset, camera, mesh, source_path, output_dir, color):
@@ -236,7 +242,7 @@ def main(gpu, dataset, camera, mesh, source_path, output_dir, color):
 
     # Load mesh
     if mesh.endswith('.obj'):
-        mesh = load_objs_as_meshes([mesh]).to("cuda")
+        mesh = load_objs_as_meshes([mesh], load_textures=True).to("cuda")
     elif mesh.endswith('.ply'):
         verts, faces = load_ply(mesh)
         mesh = Meshes(verts=[verts], faces=[faces]).to("cuda")
@@ -275,7 +281,6 @@ def main(gpu, dataset, camera, mesh, source_path, output_dir, color):
     os.makedirs(intrinsic_path, exist_ok=True)
     os.makedirs(render_depths_path, exist_ok=True)
     _id = 0
-    mesh = fix_mesh_normals(mesh, torch.stack([camera.camera_center for camera in cameras], dim=0))
     for camera in tqdm(cameras):
         c2w = torch.inverse(camera.extrinsics) # to c2w
         R, T = c2w[:3, :3], c2w[:3, 3:]
